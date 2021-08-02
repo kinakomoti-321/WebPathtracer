@@ -385,8 +385,7 @@ void main(void){
             vec4 buf = texture2D(buffer, uv);
             vec3 linearColor = buf.xyz / iTime;
             vec3 gammaColor = linearToGamma(linearColor,2.2);
-            //gl_FragColor = vec4(gammaColor,1.0);
-            gl_FragColor = vec4(0.0);
+            gl_FragColor = vec4(gammaColor,1.0);
         }
     </script>
 
@@ -451,7 +450,7 @@ void main(void){
             scene_render = new THREE.Scene();
             let uniforms_test = {
                 iResolution: { value: resolution },
-                iTime: { value: 2.0 },
+                iTime: { value: 0.0 },
                 buffer: { type: 'f', value: writeBuffer.texture },
             }
             const material = new THREE.ShaderMaterial({
@@ -461,15 +460,17 @@ void main(void){
             })
             const plane = new THREE.Mesh(geometry, material);
             scene_render.add(plane);
+            var flame = 0.0;
             // 初回実行
             tick();
 
             function tick() {
                 requestAnimationFrame(tick);
+                flame += 1;
                 {
                     uniforms.iResolution.value = resolution;
                     uniforms.buffer.value = readBuffer.texture;
-                    uniforms.iTime.value += 1;
+                    uniforms.iTime.value = flame;
                 }
 
                 renderer.setRenderTarget(writeBuffer);
@@ -478,7 +479,7 @@ void main(void){
                 {
                     uniforms_test.iResolution.value = resolution;
                     uniforms_test.buffer.value = writeBuffer.texture;
-                    uniforms_test.iTime.value += 1;
+                    uniforms_test.iTime.value = flame;
                 }
 
                 renderer.setRenderTarget(null);
@@ -488,16 +489,25 @@ void main(void){
                 writeBuffer = change;
             }
 
+            // 初期化のために実行
             onResize();
+            // リサイズイベント発生時に実行
             window.addEventListener('resize', onResize);
 
             function onResize() {
-                width = window.innerHeight;
-                height = setPixelRatio(window.devicePicelratio);
+                // サイズを取得
+                width = window.innerWidth;
+                height = window.innerHeight;
+                resolution = new THREE.Vector3(width, height, 1.0);
 
+                readBuffer = createRenderTarget(width, height);
+                writeBuffer = readBuffer.clone();
+
+                flame = 0;
+                // レンダラーのサイズを調整する
                 renderer.setPixelRatio(window.devicePixelRatio);
                 renderer.setSize(width, height);
-                resolution = new THREE.Vector3(width, height, 1.0);
+
                 // カメラのアスペクト比を正す
                 camera.aspect = width / height;
                 camera.updateProjectionMatrix();
