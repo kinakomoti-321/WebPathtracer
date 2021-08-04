@@ -10,8 +10,9 @@
             overflow: hidden;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r127/three.min.js"></script>
-
+    <script src="/node_modules/three/build/three.js"></script>
+    <script src="/node_modules/three/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
     <script id="vertexShader" type="x-shader/x-vertex">
 		void main() {
 			vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
@@ -24,6 +25,15 @@
 		uniform vec3 iResolution;
 		uniform float iTime;
         uniform sampler2D buffer;
+        uniform samplerCube cubeMap;
+        uniform sampler2D texture01;
+        uniform mat4 cameraWorldMatrix;
+        uniform mat4 cameraProjectionInverseMatrix;
+        uniform mat4 cameraWorldProjectionInverseMatrix;
+        uniform vec3 cameraPos;
+        uniform vec3 cameraDir;
+
+
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define lerp(v1,v2,x) x * v1 + (1.0 - x) * v2
@@ -75,7 +85,7 @@ void tangentSpaceBasis(vec3 normal,inout vec3 t,inout vec3 b){
     b = normalize(b);
 }
 
-//球のＵＶを取得するもの（ここでは使ってない）
+//球のＵＶを取得する
 vec2 sphereUV(vec3 direction){
     vec3 pos = normalize(direction);
     float theta = acos(pos.y);
@@ -83,11 +93,11 @@ vec2 sphereUV(vec3 direction){
     if(pos.z < 0.0){
     phi *= -1.;
     }
-    
     float u = clamp(theta / M_PI,0.,1.);
     float v = (phi + M_PI) / (2.0 * M_PI);
     v = clamp(1.0 - v,0.,1.0);
-    return vec2(u,v);
+    u = clamp(1.0 - u,0.,1.0);
+    return vec2(v,u);
 }
 
 //ワールド座標からローカル座標への変換
@@ -195,8 +205,8 @@ vec3 WorldSphere(Ray ray){
         } 
     }
     vec3 hitpos = ray.origin + ray.direction * t;
-    //vec2 worlduv = sphereUV(hitpos);
-    vec3 radiance = vec3(1.0);
+    vec2 worlduv = sphereUV(hitpos);
+    vec3 radiance =  texture2D(texture01,worlduv).xyz;
     return radiance;
 }
 
@@ -294,6 +304,7 @@ vec3 pathtracer(Ray ray,vec2 uv){
         info.distance = 1000.;
 
 		if(!Scene(r,info)){
+            //vec3 l = textureCube(cubeMap, vec3, 1.0)
 			LTE = s * WorldSphere(r);
 			break;
 		}
@@ -355,17 +366,31 @@ mat3 camera(vec3 ro, vec3 ta)
     return mat3(cu, cv, cw);
 }
 
+mat3 cameraMat(vec3 ro)
+{
+    vec3 up = vec3(0, 1, 0);
+    vec3 cw = normalize(ro);
+    vec3 cu = normalize(cross(cw, up));
+    vec3 cv = normalize(cross(cu, cw));
+    return mat3(cu, cv, cw);
+}
+
 //出力部分
 void main(void){
-    vec2 uv = (gl_FragCoord.xy * 2.0 - iResolution.xy) / iResolution.y;
+    vec2 hash = hash23(vec3(iTime * gl_FragColor.xy,iTime));
+    float rand1 = random(hash) * 2.0 -1.0;
+    float rand2 = random(hash.yx) * 2.0 -1.0;
+    vec2 uv = ((gl_FragCoord.xy + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
     Ray cameraray;    
     vec2 uv1 = gl_FragCoord.xy/iResolution.xy;
- 
-    cameraray.origin = vec3(0.0,2.0,7.0);
-    cameraray.direction = camera(cameraray.origin,vec3(0.,1.,1.)) * normalize(vec3(uv,1.0));
+    
+    //vec4 rayTip = cameraWorldMatrix * cameraProjectionInverseMatrix * vec4(uv.xy,1.,1.);
+    vec3 rayTip = cameraMat(cameraDir) * vec3(uv,1.0);
+    cameraray.origin = cameraPos;
+    cameraray.direction = normalize(rayTip.xyz);
     //今回の輝度を計算する
     vec3 col =  pathtracer(cameraray,gl_FragCoord.xy); 
-    vec4 prevColor = texture2D( buffer, uv1);
+    vec4 prevColor = texture2D(buffer, uv1);
     //前の出力に今回の輝度を加え、累計の輝度を出力す。。
     gl_FragColor = vec4(col + prevColor.xyz,1.0);
 }
@@ -392,6 +417,7 @@ void main(void){
     <script>
         var readBuffer;
         var writeBuffer;
+        var shadercamera;
 
         // ページの読み込みを待つ
         window.addEventListener('DOMContentLoaded', init);
@@ -408,7 +434,11 @@ void main(void){
                 depthBuffer: false
             });
         }
-
+        function MyBox() {
+            this.w = 1.0;
+            this.h = 1.0;
+            this.d = 1.0;
+        }
         function init() {
             var width = 960;
             var height = 540;
@@ -417,8 +447,28 @@ void main(void){
             const renderer = new THREE.WebGLRenderer({
                 canvas: document.querySelector('#myCanvas')
             });
+
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(width, height);
+            //キューブマップ生成
+            var cubeLoader = new THREE.CubeTextureLoader();
+
+            var texpath = "/Texture/";
+            var cubepath = [
+                texpath + "px.png",
+                texpath + "nx.png",
+                texpath + "py.png",
+                texpath + "ny.png",
+                texpath + "pz.png",
+                texpath + "nz.png",
+            ];
+
+            cubeLoader.load(cubepath);
+            cubeLoader.format = THREE.RGBAFormat;
+            cubeLoader.mapping = THREE.CubeTextureLoader;
+
+            var texLoader = new THREE.TextureLoader();
+            var tex = texLoader.load("Pic1.jpg");
 
             // シーンを作成
             const scene_buffer = new THREE.Scene();
@@ -426,16 +476,49 @@ void main(void){
             // カメラを作成
             const camera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
             camera.position.set(0, 0, +5);
+
+            shadercamera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
+            shadercamera.position.set(0, 1, 8);
+
+            shadercamera.lookAt(new THREE.Vector3(0.0, 0.0, 0.0));
+            // OrbitControls
+            orbitControls = new THREE.OrbitControls(shadercamera, document.body);
+            orbitControls.enablePan = true;
+            orbitControls.keyPanSpeed = 0.01;
+            orbitControls.enableDamping = false;
+            orbitControls.dampingFactor = 0.015;
+            orbitControls.enableZoom = true;
+            orbitControls.zoomSpeed = 1;
+            orbitControls.rotateSpeed = 0.8;
+            orbitControls.autoRotate = false;
+            orbitControls.autoRotateSpeed = 0.0;
+            orbitControls.target = new THREE.Vector3(0.0, 0.0, 0.0);
+
             var resolution = new THREE.Vector3(width, height, 1.0);
 
             readBuffer = createRenderTarget(width, height);
             writeBuffer = readBuffer.clone();
             // 箱を作成
             const geometry = new THREE.PlaneBufferGeometry(10, 10);
+
+            //カメラ行列
+            var cameraProjectionInverseMatrix = new THREE.Matrix4().getInverse(camera.projectionMatrix);
+            var cameraWorldProjectionInverseMatrix = camera.matrixWorld.clone();
+            cameraWorldProjectionInverseMatrix.multiply(cameraProjectionInverseMatrix);
+
+            var cameraDir = new THREE.Vector3(0, 0, -1);
             let uniforms = {
                 iResolution: { value: resolution },
                 iTime: { value: 2.0 },
                 buffer: { type: 'f', value: readBuffer.texture },
+                cubeMap: { type: 'tc', value: cubeLoader },
+                texture01: { type: 'f', value: tex },
+
+                cameraWorldMatrix: { type: 'm4', value: shadercamera.matrixWorld },
+                cameraProjectionInverseMatrix: { type: 'm4', value: cameraProjectionInverseMatrix },
+                cameraWorldProjectionInverseMatrix: { type: 'm4', value: cameraWorldProjectionInverseMatrix },
+                cameraPos: { value: shadercamera.position },
+                cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) }
             }
             const mat = new THREE.ShaderMaterial({
                 uniforms: uniforms,
@@ -466,6 +549,7 @@ void main(void){
 
             function tick() {
                 requestAnimationFrame(tick);
+
                 flame += 1;
                 {
                     uniforms.iResolution.value = resolution;
