@@ -11,7 +11,7 @@
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="/OrbitControls.js"></script>
+    <script src="./OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
 
     <script id="vertexShader" type="x-shader/x-vertex">
@@ -26,7 +26,6 @@
 		uniform vec3 iResolution;
 		uniform float iTime;
         uniform sampler2D buffer;
-        uniform samplerCube cubeMap;
         uniform sampler2D texture01;
         uniform mat4 cameraWorldMatrix;
         uniform mat4 cameraProjectionInverseMatrix;
@@ -496,11 +495,6 @@ void main(void){
             // 箱を作成
             const geometry = new THREE.PlaneBufferGeometry(10, 10);
 
-            //カメラ行列
-            var cameraProjectionInverseMatrix = new THREE.Matrix4().getInverse(camera.projectionMatrix);
-            var cameraWorldProjectionInverseMatrix = camera.matrixWorld.clone();
-            cameraWorldProjectionInverseMatrix.multiply(cameraProjectionInverseMatrix);
-
             var cameraDir = new THREE.Vector3(0, 0, -1);
             var prerotation = shadercamera.quaternion;
             var prepos = shadercamera.position;
@@ -508,12 +502,8 @@ void main(void){
                 iResolution: { value: resolution },
                 iTime: { value: 2.0 },
                 buffer: { type: 'f', value: readBuffer.texture },
-                cubeMap: { type: 'tc', value: cubeLoader },
                 texture01: { type: 'f', value: tex },
 
-                cameraWorldMatrix: { type: 'm4', value: shadercamera.matrixWorld },
-                cameraProjectionInverseMatrix: { type: 'm4', value: cameraProjectionInverseMatrix },
-                cameraWorldProjectionInverseMatrix: { type: 'm4', value: cameraWorldProjectionInverseMatrix },
                 cameraPos: { value: shadercamera.position },
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) }
             }
@@ -579,7 +569,7 @@ void main(void){
                 var change = readBuffer;
                 readBuffer = writeBuffer;
                 writeBuffer = change;
-                alert("test");
+                //alert("test");
             }
 
             // 初期化のために実行
@@ -606,7 +596,6 @@ void main(void){
             }
         }
     </script>
-</head>
 
 <body>
     <canvas id="myCanvas"></canvas>
