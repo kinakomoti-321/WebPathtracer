@@ -10,9 +10,10 @@
             overflow: hidden;
         }
     </style>
-    <script src="/node_modules/three/build/three.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="/node_modules/three/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
+
     <script id="vertexShader" type="x-shader/x-vertex">
 		void main() {
 			vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
