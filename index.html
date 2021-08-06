@@ -11,7 +11,7 @@
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="/node_modules/three/examples/js/controls/OrbitControls.js"></script>
+    <script src="./node_modules/three/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
 
     <script id="vertexShader" type="x-shader/x-vertex">
@@ -461,22 +461,6 @@ void main(void){
 
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(width, height);
-            //キューブマップ生成
-            var cubeLoader = new THREE.CubeTextureLoader();
-
-            var texpath = "/Texture/";
-            var cubepath = [
-                texpath + "px.png",
-                texpath + "nx.png",
-                texpath + "py.png",
-                texpath + "ny.png",
-                texpath + "pz.png",
-                texpath + "nz.png",
-            ];
-
-            cubeLoader.load(cubepath);
-            cubeLoader.format = THREE.RGBAFormat;
-            cubeLoader.mapping = THREE.CubeTextureLoader;
 
             var texLoader = new THREE.TextureLoader();
             var tex = texLoader.load("Pic1.jpg");
