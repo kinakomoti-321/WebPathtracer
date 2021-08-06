@@ -146,7 +146,7 @@ bool intersectSphere(Ray R,Sphere S,inout Info info){
         } 
     }
 
-    if(t > info.distance) return false;
+    //if(t > info.distance) return false;
 
     info.distance = t;
     info.position = R.origin + t * R.direction;
@@ -166,20 +166,12 @@ bool baseplaneIntersect(Ray ray,inout Info info){
     if(abs(dn) == 0.000) return false;
 
     float t = - sn/ dn;
-    if(t > info.distance || t < 0.0001 || t > 10000.) return false;
+    if(t < 0.0001 || t > 10000.) return false;
     vec3 pos = ray.origin + t * ray.direction;
     if(length(pos) > 8.) return false;
     info.distance = t;
     info.normal = normal;
     info.position = pos;
-    float m = mod(info.position.x,2.0);
-    float n = mod(info.position.z,2.0);
-    float d =1.0;
-    if((m > 1. && n > 1.) || (m < 1. && n < 1.)){
-        d *= 0.5;
-    }
-    
-    float f = 1.0 - min(abs(info.position.z),25.0) * 0.04;
     info.color = vec3(0.9);
     info.number = 0;
     return true;
@@ -215,20 +207,34 @@ bool Scene(Ray r,inout Info info){
 
     Sphere sphere;
     sphere.radius = 1.0;
-    sphere.position = vec3(0.0,1.0,0.0);
+    sphere.position = vec3(0.0,1.01,0.0);
     sphere.number = 1;
     float width = 6.0;
     float spherenumber = 5.;
     float dis = width * 2.0 / (spherenumber-1.);    
     bool hit = false;
-
+    info.distance = 10000.;
     for(int i = 1; i <= 5; i++){
         sphere.position = vec3(-width + dis * float(i-1),1.0,0.0);
         sphere.number = i;
-        hit = hit || intersectSphere(r,sphere,info);    
+        Info tes;
+        tes.distance = 10000.;
+        if(intersectSphere(r,sphere,tes)){
+            if(tes.distance < info.distance){
+                hit = true;
+                info = tes;
+            }
+        }
     }
 
-    hit = hit || baseplaneIntersect(r,info);
+    Info tes;
+    tes.distance = 10000.;
+    if(baseplaneIntersect(r,tes)){
+        if(tes.distance < info.distance){
+            hit = true;
+            info = tes;
+        }
+    }
     return hit;
 }
 
@@ -385,7 +391,7 @@ void main(void){
     vec2 uv1 = gl_FragCoord.xy/iResolution.xy;
     
     //vec4 rayTip = cameraWorldMatrix * cameraProjectionInverseMatrix * vec4(uv.xy,1.,1.);
-    vec3 rayTip = cameraMat(cameraDir) * vec3(uv,1.0);
+    vec3 rayTip = cameraMat(cameraDir) * vec3(uv,2.0);
     cameraray.origin = cameraPos;
     cameraray.direction = normalize(rayTip.xyz);
     //今回の輝度を計算する
@@ -444,8 +450,8 @@ void main(void){
             this.d = 1.0;
         }
         function init() {
-            var width = 960;
-            var height = 540;
+            var width = window.width;
+            var height = window.height;
 
             // レンダラーを作成
             const renderer = new THREE.WebGLRenderer({
@@ -606,7 +612,6 @@ void main(void){
 
                 flame = 0;
                 // レンダラーのサイズを調整する
-                renderer.setPixelRatio(window.devicePixelRatio);
                 renderer.setSize(width, height);
 
                 // カメラのアスペクト比を正す
