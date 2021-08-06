@@ -2,7 +2,7 @@
 Three.jsを使用したウェブ上で動くレイトレーサーです。
 
 DemoPage 
-https://kinakomoti-321.github.io/WebPathtracer/https://github.com/kinakomoti-321
+https://kinakomoti-321.github.io/WebPathtracer/
 
 参考文献
 
