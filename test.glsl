@@ -1,39 +1,3 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-        }
-    </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="./OrbitControls.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
-
-    <script id="vertexShader" type="x-shader/x-vertex">
-		void main() {
-			vec4 worldPosition = modelMatrix * vec4( position, 1.0 );
-			vec4 mvPosition =  viewMatrix * worldPosition;
-			gl_Position = projectionMatrix * mvPosition;
-		}
-	</script>
-
-    <script id="fragmentShader" type="x-shader/x-fragment">
-		uniform vec3 iResolution;
-		uniform float iTime;
-        uniform sampler2D buffer;
-        uniform sampler2D texture01;
-        uniform sampler2D texture02;
-        uniform sampler2D texture03;
-        uniform vec3 cameraPos;
-        uniform vec3 cameraDir;
-        uniform vec3 cameraLens;
-
-
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define lerp(v1,v2,x) x * v1 + (1.0 - x) * v2
@@ -387,9 +351,9 @@ mat3 cameraMat(vec3 ro)
 }
 
 Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos){
-    float f = cameraLens.x;
-    float F = cameraLens.y;
-    float L = cameraLens.z;
+    float f = 2.0;
+    float F = 2.0;
+    float L = 1.0;
 
     float V = L * f / (L - f);
     
@@ -423,14 +387,14 @@ void main(void){
     vec2 hash = hash23(vec3(iTime * gl_FragColor.xy,iTime));
     float rand1 = random(hash) * 2.0 -1.0;
     float rand2 = random(hash.yx) * 2.0 -1.0;
-    vec2 uv = (((iResolution.xy - gl_FragCoord.xy) + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
-    Ray cameraray = thinLensCamera(uv,cameraDir,cameraPos);    
+    vec2 uv = ((gl_FragCoord.xy + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
+    Ray cameraray;    
     vec2 uv1 = gl_FragCoord.xy/iResolution.xy;
     
     //vec4 rayTip = cameraWorldMatrix * cameraProjectionInverseMatrix * vec4(uv.xy,1.,1.);
     vec3 rayTip = cameraMat(cameraDir) * vec3(uv,2.0);
-    //cameraray.origin = cameraPos;
-    //cameraray.direction = normalize(rayTip.xyz);
+    cameraray.origin = cameraPos;
+    cameraray.direction = normalize(rayTip.xyz);
     //今回の輝度を計算する
     vec3 col =  pathtracer(cameraray,gl_FragCoord.xy); 
     vec4 prevColor = texture2D(buffer, uv1);
@@ -440,215 +404,3 @@ void main(void){
     //前の出力に今回の輝度を加え、累計の輝度を出力す。。
     gl_FragColor = vec4(col,1.0);
 }
-
-	</script>
-
-    <script id="Render" type="x-shader/x-fragment">
-        uniform vec3 iResolution;
-        uniform float iTime;
-        uniform sampler2D buffer;
-        vec3 linearToGamma(in vec3 value,in float gammaFactor){
-            return pow(value,vec3(1.0/gammaFactor));
-        }
-        
-        void main(void){
-            vec2 uv = gl_FragCoord.xy / iResolution.xy;
-            vec4 buf = texture2D(buffer, uv);
-            vec3 linearColor = buf.xyz / iTime;
-            vec3 gammaColor = linearToGamma(linearColor,2.2);
-            gl_FragColor = vec4(gammaColor,1.0);
-        }
-    </script>
-
-    <script>
-        var readBuffer;
-        var writeBuffer;
-        var shadercamera;
-        var prev;
-
-        // ページの読み込みを待つ
-        window.addEventListener('DOMContentLoaded', init);
-
-        function createRenderTarget(width, height) {
-            return new THREE.WebGLRenderTarget(width, height, {
-                wrapS: THREE.RepeatWrapping,
-                wrapT: THREE.RepeatWrapping,
-                minFilter: THREE.NearestFilter,
-                magFilter: THREE.NearestFilter,
-                format: THREE.RGBAFormat,
-                type: THREE.FloatType,// typeを指定することでFloatTypeにできる！
-                stencilBuffer: false,
-                depthBuffer: false
-            });
-        }
-        function MyBox() {
-            this.w = 4.0;
-            this.h = 50.0;
-            this.d = 50.0;
-        }
-        function init() {
-            var width = window.width;
-            var height = window.height;
-            var flame = 0.0;
-            // レンダラーを作成
-            const renderer = new THREE.WebGLRenderer({
-                canvas: document.querySelector('#myCanvas')
-            });
-
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(width, height);
-
-            var texLoader = new THREE.TextureLoader();
-            var tex = texLoader.load("Pic1.jpg");
-            var tex2 = texLoader.load("moon.jpg");
-            var tex3 = texLoader.load("earth.png")
-
-            const gui = new dat.GUI();
-            const param = new MyBox();
-            gui.add(param, 'w', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            gui.add(param, 'h', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            gui.add(param, 'd', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            var lens = new THREE.Vector3(param.w, param.h, param.d);
-
-            // シーンを作成
-            const scene_buffer = new THREE.Scene();
-
-            // カメラを作成
-            const camera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
-            camera.position.set(0, 0, +5);
-
-            shadercamera = new THREE.PerspectiveCamera(45, width / height, 1, 10000);
-            shadercamera.position.set(0, 1, 8);
-
-            shadercamera.lookAt(new THREE.Vector3(0.0, 0.0, 0.0));
-            // OrbitControls
-            orbitControls = new THREE.OrbitControls(shadercamera, document.body);
-            orbitControls.enablePan = true;
-            orbitControls.keyPanSpeed = 0.01;
-            orbitControls.enableDamping = false;
-            orbitControls.dampingFactor = 0.015;
-            orbitControls.enableZoom = true;
-            orbitControls.zoomSpeed = 1;
-            orbitControls.rotateSpeed = 0.8;
-            orbitControls.autoRotate = false;
-            orbitControls.autoRotateSpeed = 0.0;
-            orbitControls.target = new THREE.Vector3(0.0, 0.0, 0.0);
-
-            var resolution = new THREE.Vector3(width, height, 1.0);
-
-            readBuffer = createRenderTarget(width, height);
-            writeBuffer = readBuffer.clone();
-            // 箱を作成
-            const geometry = new THREE.PlaneBufferGeometry(10, 10);
-
-            var cameraDir = new THREE.Vector3(0, 0, -1);
-            var prerotation = shadercamera.quaternion;
-            var prepos = shadercamera.position;
-            let uniforms = {
-                iResolution: { value: resolution },
-                iTime: { value: 1.0 },
-                buffer: { type: 'f', value: readBuffer.texture },
-                texture01: { type: 'f', value: tex },
-                texture02: { type: 'f', value: tex2 },
-                texture03: { type: 'f', value: tex3 },
-
-                cameraPos: { value: shadercamera.position },
-                cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
-                cameraLens: { value: lens }
-            }
-            const mat = new THREE.ShaderMaterial({
-                uniforms: uniforms,
-                vertexShader: document.getElementById('vertexShader').textContent,
-                fragmentShader: document.getElementById('fragmentShader').textContent,
-            });
-
-            const box = new THREE.Mesh(geometry, mat);
-            scene_buffer.add(box);
-
-
-            scene_render = new THREE.Scene();
-            let uniforms_test = {
-                iResolution: { value: resolution },
-                iTime: { value: 0.0 },
-                buffer: { type: 'f', value: writeBuffer.texture },
-            }
-            const material = new THREE.ShaderMaterial({
-                uniforms: uniforms_test,
-                vertexShader: document.getElementById('vertexShader').textContent,
-                fragmentShader: document.getElementById('Render').textContent
-            })
-            const plane = new THREE.Mesh(geometry, material);
-            scene_render.add(plane);
-
-            // 初回実行
-            tick();
-
-            function tick() {
-                requestAnimationFrame(tick);
-
-                orbitControls.update();
-
-                if (prev && !shadercamera.matrixWorld.equals(prev)) {
-                    flame = 0;
-                }
-                prev = shadercamera.matrixWorld.clone();
-                prepos = shadercamera.position.clone();
-                prerotation = shadercamera.quaternion.clone();
-                var dir = new THREE.Vector3(0, 0, -1);
-                lens = new THREE.Vector3(param.w, param.h, param.d);
-                flame += 1;
-                {
-                    uniforms.iResolution.value = resolution;
-                    uniforms.buffer.value = readBuffer.texture;
-                    uniforms.iTime.value = flame;
-                    uniforms.cameraPos.value = prepos;
-                    uniforms.cameraDir.value = dir.applyQuaternion(prerotation);
-                    uniforms.cameraLens.value = lens;
-                }
-
-                renderer.setRenderTarget(writeBuffer);
-                renderer.render(scene_buffer, camera);
-
-                {
-                    uniforms_test.iResolution.value = resolution;
-                    uniforms_test.buffer.value = writeBuffer.texture;
-                    uniforms_test.iTime.value = flame;
-                }
-
-                renderer.setRenderTarget(null);
-                renderer.render(scene_render, camera);
-                var change = readBuffer;
-                readBuffer = writeBuffer;
-                writeBuffer = change;
-            }
-
-            // 初期化のために実行
-            onResize();
-            // リサイズイベント発生時に実行
-            window.addEventListener('resize', onResize);
-
-            function onResize() {
-                // サイズを取得
-                width = window.innerWidth;
-                height = window.innerHeight;
-                resolution = new THREE.Vector3(width, height, 1.0);
-
-                readBuffer = createRenderTarget(width, height);
-                writeBuffer = readBuffer.clone();
-
-                flame = 0;
-                // レンダラーのサイズを調整する
-                renderer.setSize(width, height);
-
-                // カメラのアスペクト比を正す
-                camera.aspect = width / height;
-                camera.updateProjectionMatrix();
-            }
-        }
-    </script>
-
-<body>
-    <canvas id="myCanvas"></canvas>
-</body>
-
-</html>
