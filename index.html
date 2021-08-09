@@ -29,9 +29,11 @@
         uniform sampler2D texture01;
         uniform sampler2D texture02;
         uniform sampler2D texture03;
+
         uniform vec3 cameraPos;
         uniform vec3 cameraDir;
         uniform vec3 cameraLens;
+        uniform bool LensCheck;
 
 
 #define M_PI float(3.141592)
@@ -423,14 +425,20 @@ void main(void){
     vec2 hash = hash23(vec3(iTime * gl_FragColor.xy,iTime));
     float rand1 = random(hash) * 2.0 -1.0;
     float rand2 = random(hash.yx) * 2.0 -1.0;
-    vec2 uv = (((iResolution.xy - gl_FragCoord.xy) + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
-    Ray cameraray = thinLensCamera(uv,cameraDir,cameraPos);    
+    vec2 uv = (( gl_FragCoord.xy + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
+    vec2 lensuv = (((iResolution.xy - gl_FragCoord.xy) + vec2(rand1,rand2)) * 2.0 - iResolution.xy) / iResolution.y;
+    Ray cameraray;    
     vec2 uv1 = gl_FragCoord.xy/iResolution.xy;
     
     //vec4 rayTip = cameraWorldMatrix * cameraProjectionInverseMatrix * vec4(uv.xy,1.,1.);
     vec3 rayTip = cameraMat(cameraDir) * vec3(uv,2.0);
-    //cameraray.origin = cameraPos;
-    //cameraray.direction = normalize(rayTip.xyz);
+    if(LensCheck){
+        cameraray =  thinLensCamera(lensuv,cameraDir,cameraPos);
+    }
+    else{
+        cameraray.origin = cameraPos;
+        cameraray.direction = normalize(rayTip.xyz);
+    }
     //今回の輝度を計算する
     vec3 col =  pathtracer(cameraray,gl_FragCoord.xy); 
     vec4 prevColor = texture2D(buffer, uv1);
@@ -481,10 +489,12 @@ void main(void){
                 depthBuffer: false
             });
         }
-        function MyBox() {
-            this.w = 4.0;
-            this.h = 50.0;
-            this.d = 50.0;
+
+        function CameraParam() {
+            this.f = 4.0;
+            this.F = 50.0;
+            this.L = 50.0;
+            this.Lens = false;
         }
         function init() {
             var width = window.width;
@@ -501,14 +511,17 @@ void main(void){
             var texLoader = new THREE.TextureLoader();
             var tex = texLoader.load("Pic1.jpg");
             var tex2 = texLoader.load("moon.jpg");
-            var tex3 = texLoader.load("earth.png")
+            var tex3 = texLoader.load("earth.png");
 
             const gui = new dat.GUI();
-            const param = new MyBox();
-            gui.add(param, 'w', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            gui.add(param, 'h', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            gui.add(param, 'd', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
-            var lens = new THREE.Vector3(param.w, param.h, param.d);
+            var cameragui = gui.addFolder('Camera');
+            var param = new CameraParam();
+            cameragui.add(param, 'f', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
+            cameragui.add(param, 'F', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
+            cameragui.add(param, 'L', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
+            cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
+            var lens = new THREE.Vector3(param.f, param.F, param.L);
+
 
             // シーンを作成
             const scene_buffer = new THREE.Scene();
@@ -521,8 +534,8 @@ void main(void){
             shadercamera.position.set(0, 1, 8);
 
             shadercamera.lookAt(new THREE.Vector3(0.0, 0.0, 0.0));
-            // OrbitControls
-            orbitControls = new THREE.OrbitControls(shadercamera, document.body);
+            //OrbitControls
+            orbitControls = new THREE.OrbitControls(shadercamera, document.querySelector('#myCanvas'));
             orbitControls.enablePan = true;
             orbitControls.keyPanSpeed = 0.01;
             orbitControls.enableDamping = false;
@@ -554,7 +567,8 @@ void main(void){
 
                 cameraPos: { value: shadercamera.position },
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
-                cameraLens: { value: lens }
+                cameraLens: { value: lens },
+                LensCheck: { value: param.Lens }
             }
             const mat = new THREE.ShaderMaterial({
                 uniforms: uniforms,
@@ -595,7 +609,7 @@ void main(void){
                 prepos = shadercamera.position.clone();
                 prerotation = shadercamera.quaternion.clone();
                 var dir = new THREE.Vector3(0, 0, -1);
-                lens = new THREE.Vector3(param.w, param.h, param.d);
+                lens = new THREE.Vector3(param.f, param.F, param.L);
                 flame += 1;
                 {
                     uniforms.iResolution.value = resolution;
@@ -604,6 +618,7 @@ void main(void){
                     uniforms.cameraPos.value = prepos;
                     uniforms.cameraDir.value = dir.applyQuaternion(prerotation);
                     uniforms.cameraLens.value = lens;
+                    uniforms.LensCheck.value = param.Lens;
                 }
 
                 renderer.setRenderTarget(writeBuffer);
