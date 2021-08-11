@@ -35,7 +35,7 @@
         uniform vec3 cameraLens;
         uniform bool LensCheck;
 
-
+        uniform bool World;
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define lerp(v1,v2,x) x * v1 + (1.0 - x) * v2
@@ -203,7 +203,9 @@ vec3 WorldSphere(Ray ray){
     vec3 hitpos = ray.origin + ray.direction * t;
     vec2 worlduv = sphereUV(hitpos);
     vec3 radiance =  texture2D(texture01,worlduv).xyz;
-    //radiance = vec3(0.0);
+    if(World){
+        radiance = vec3(0.0);
+    }
     return radiance;
 }
 
@@ -244,10 +246,70 @@ bool Scene(Ray r,inout Info info){
 }
 
 //BRDF
+//Lamvert
 vec3 Lambert(vec3 rho,inout vec3 wi,inout float pdf,vec2 random){
      wi = sampleHemisphere(random.x,random.y,pdf);
      return rho / M_PI;
 }
+// Perfect Reflect
+vec3 reflect(vec3 wo,vec3 n){
+    return normalize(-wo + 2. * dot(wo,n) * n);
+}
+
+vec3 Mirror(vec3 rho,vec3 wo,inout vec3 wi,inout float pdf){
+    wi = reflect(wo,vec3(0.,1.0,0.));
+    pdf = 1.0;
+    return rho / abs(wi[1]);
+}
+
+// Non Roughness Glass
+float length2(vec3 v){
+    return length(v) * length(v);
+}
+vec3 refract(vec3 wo,vec3 n,float n1, float n2){
+    vec3 th = - (n1 / n2) * (wo - dot(wo,n) * n);
+    if(length2(th)> 1.0){
+        return reflect(wo,n);
+    }
+    vec3 tp = -sqrt(max(1.0f - length2(th),0.0)) * n;
+    return normalize(th + tp);
+}
+float glassFresnel(vec3 wo,vec3 n,float ior1,float ior2){
+    float f0 = pow((ior1 - ior2) / (ior1 + ior2),2.0);
+    return f0 + (1.0f - f0) * pow(1.0 - abs(dot(wo,n)),5.0);
+}
+
+vec3 SmoothGlass(vec3 wo,inout vec3 wi,inout float pdf,float random){
+    vec3 rho = vec3(0.9);
+    float ior1,ior2;
+    float glassior = 1.33;
+    vec3 n = vec3(0.,1.,0.);
+    if(wo.y > 0.0){
+        ior1 = 1.0;
+        ior2 = glassior = 1.33; 
+        n = vec3(0.,1.,0.);
+    }
+    else
+    {
+        ior1 = glassior;
+        ior2 = 1.0;
+        n = vec3(0.,-1.,0.);
+    }
+
+    float fr = glassFresnel(wo,n,ior1,ior2);
+    if(random < fr){
+        wi = reflect(wo,n);
+        pdf = 1.0;
+        return rho / abs(wi.y);
+    }
+    else{
+        pdf = 1.0;
+        wi = refract(wo,n,ior1,ior2);
+        return rho / abs(wi.y);
+    }
+}
+
+
 //MicrofasetBRDF
 // https://qiita.com/aa_debdeb/items/f813bdcbd8524a66a11b
 vec3 fresnelSchlick(vec3 f0,float cosine){
@@ -336,7 +398,8 @@ vec3 pathtracer(Ray ray,vec2 uv){
             BSDF = Lambert(vec3(1.0),wi,pdf,xi);
         }
         else if(info.number  == 1){
-            BSDF = Lambert(vec3(1.0,0.0,0.0),wi,pdf,xi);
+            //BSDF = Lambert(vec3(1.0,0.0,0.0),wi,pdf,xi);
+            BSDF = SmoothGlass(wo,wi,pdf,xi.x);
 		}
         else if(info.number == 2){
              BSDF = Lambert(texture2D(texture02,info.uv).xyz,wi,pdf,xi);
@@ -350,7 +413,8 @@ vec3 pathtracer(Ray ray,vec2 uv){
             BSDF = Lambert(texture2D(texture03,info.uv).xyz,wi,pdf,xi);
         }
         else if(info.number == 5){
-            BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
+            //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
+            BSDF = Mirror(vec3(0.9),wo,wi,pdf);
         }
         else{
             BSDF = vec3(0.0);
@@ -496,13 +560,18 @@ void main(void){
             this.L = 50.0;
             this.Lens = false;
         }
+
+        function worldParam() {
+            this.Background = true;
+        }
         function init() {
             var width = window.width;
             var height = window.height;
             var flame = 0.0;
             // レンダラーを作成
             const renderer = new THREE.WebGLRenderer({
-                canvas: document.querySelector('#myCanvas')
+                canvas: document.querySelector('#myCanvas'),
+                //preserveDrawingBuffer: true
             });
 
             renderer.setPixelRatio(window.devicePixelRatio);
@@ -513,13 +582,25 @@ void main(void){
             var tex2 = texLoader.load("moon.jpg");
             var tex3 = texLoader.load("earth.png");
 
+            function takePicture() {
+                this.shot = function () {
+                    alert("sorry, still can't take screenshot");
+                }
+            }
+
             const gui = new dat.GUI();
             var cameragui = gui.addFolder('Camera');
+            var worldgui = gui.addFolder('World');
             var param = new CameraParam();
+            var shot = new takePicture();
+            var wparam = new worldParam();
+
             cameragui.add(param, 'f', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'F', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'L', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
+            cameragui.add(shot, 'shot');
+            worldgui.add(wparam, 'Background').onChange(function () { flame = 0 });
             var lens = new THREE.Vector3(param.f, param.F, param.L);
 
 
@@ -568,7 +649,9 @@ void main(void){
                 cameraPos: { value: shadercamera.position },
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
                 cameraLens: { value: lens },
-                LensCheck: { value: param.Lens }
+                LensCheck: { value: param.Lens },
+
+                World: { value: wparam.Background }
             }
             const mat = new THREE.ShaderMaterial({
                 uniforms: uniforms,
@@ -619,6 +702,7 @@ void main(void){
                     uniforms.cameraDir.value = dir.applyQuaternion(prerotation);
                     uniforms.cameraLens.value = lens;
                     uniforms.LensCheck.value = param.Lens;
+                    uniforms.World.value = wparam.Background;
                 }
 
                 renderer.setRenderTarget(writeBuffer);
