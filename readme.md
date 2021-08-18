@@ -1,8 +1,24 @@
 # web RayTracer
 Three.jsを使用したウェブ上で動くレイトレーサーです。
 
+PC、Chromeの使用を推奨します。（現在画面が４分割されるようなバグが確認されています。環境によってはこのバグが生じる可能性があります。）
+
+$ \frac{G F}{4|\omega_i \cdot n| |\omega_m \cdot n|} $
+
 DemoPage 
 https://kinakomoti-321.github.io/WebPathtracer/
+
+## GUIの各パラメーター
+1. Camera
+	- f : カメラの焦点距離
+	- F : カメラのF値　大きいほどピントが外れてもぼやけにくい
+	- L : レンズからピントまでの距離
+	- Lens : 薄レンズのON,OFF
+	- Shot : スクリーンショット
+
+2. Scene
+	- Background : 背景のON,OFF
+
 
 参考文献
 

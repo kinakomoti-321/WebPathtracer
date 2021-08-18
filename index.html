@@ -29,6 +29,7 @@
         uniform sampler2D texture01;
         uniform sampler2D texture02;
         uniform sampler2D texture03;
+        uniform sampler2D texture04;
 
         uniform vec3 cameraPos;
         uniform vec3 cameraDir;
@@ -38,6 +39,7 @@
         uniform bool World;
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
+#define HASHSCALE2 vec2(.1392,.1953)
 #define lerp(v1,v2,x) x * v1 + (1.0 - x) * v2
 //Rayや球、衝突情報の構造体の宣言
 struct Ray{
@@ -66,13 +68,17 @@ float random (vec2 st) {
 }
 
 //reffer https://github.com/gam0022/webgl/blob/master/pathtracing_sandbox.html by gam0022
+vec2 hash22(vec2 p2){
+    p2 = fract(p2 * HASHSCALE2);
+    p2 += dot(p2,p2.yx + 12.42);
+    return fract((p2.xx + p2.yx) * p2);
+}
 vec2 hash23(vec3 p3)
 {
 	p3 = fract(p3 * HASHSCALE3);
 	p3 += dot(p3, p3.yzx+19.19);
 	return fract((p3.xx+p3.yz)*p3.zy);
 }
-
 //接空間の基底を求める関数
 void tangentSpaceBasis(vec3 normal,inout vec3 t,inout vec3 b){
     if (abs(normal.y) < 0.9)
@@ -128,6 +134,14 @@ vec3 sampleHemisphere(float u, float v, inout float pdf){
                  sin(phi) * sin(theta));
 }
 
+//GGX重点サンプリング
+vec3 sampleGGX(float u,float v,inout float pdf){
+    float phi = 2.0 * M_PI * u;
+    float theta = clamp(atan(sqrt((1.0 - v)/v)),0.,M_PI/2.0);
+    pdf = 1.0;
+    return vec3(cos(phi) * sin(theta),cos(theta),
+                 sin(phi) * sin(theta));
+}
 //球の衝突判定
 bool intersectSphere(Ray R,Sphere S,inout Info info){
     vec3 a = R.origin - S.position;
@@ -161,26 +175,52 @@ bool intersectSphere(Ray R,Sphere S,inout Info info){
 }
 
 //平面の衝突判定
-bool baseplaneIntersect(Ray ray,inout Info info){
+bool cercleplaneIntersect(Ray ray,inout Info info,float radiance){
     vec3 normal = normalize(vec3(0.,1.,0.));
     
     float sn = dot(ray.origin,normal);
     float dn = dot(ray.direction,normal);
 
-    if(abs(dn) == 0.000) return false;
+    if(abs(dn) < 0.001) return false;
 
     float t = - sn/ dn;
     if(t < 0.0001 || t > 10000.) return false;
     vec3 pos = ray.origin + t * ray.direction;
-    if(length(pos) > 8.) return false;
+    if(length(pos) > radiance) return false;
     info.distance = t;
     info.normal = normal;
+    if(dot(normal,ray.direction) > 0.0) info.normal = -normal;
     info.position = pos;
     info.color = vec3(0.9);
     info.number = 0;
     return true;
 }
+//四角い平面の衝突判定
+bool squarePlaneIntersect(Ray ray, inout Info info){
+    vec3 normal = normalize(vec3(0.,0.,1.));
+    vec3 PlanePos = vec3 (0,3,-3);
+    float rn = dot(normal,PlanePos);
+    float sn = dot(ray.origin,normal);
+    float dn = dot(ray.direction,normal);
 
+    if(abs(dn) < 0.001) return false;
+    float t = (rn - sn) / dn;
+    if(t < 0.0001 || t > 10000.) return false;
+
+    vec3 pos = ray.origin + t * ray.direction;
+    vec3 lim = pos - PlanePos;
+    float limx = 3.5,limy = 2.5;
+    if(abs(lim.y) > limy || abs(lim.x) > limx) return false;
+
+    info.distance = t;
+    info.normal = normal;
+    if(dot(normal,ray.direction) > 0.0) info.normal = -normal;
+    info.color = vec3(0.0);
+    info.position = pos;
+    info.number = 10;
+    info.uv = vec2( 0.5 * (limx + lim.x)/limx,0.5 *(limy + lim.y) / limy);
+    return true;
+}
 vec3 WorldSphere(Ray ray){
     vec3 a = ray.origin;
     float b = dot(a,ray.direction);
@@ -203,7 +243,7 @@ vec3 WorldSphere(Ray ray){
     vec3 hitpos = ray.origin + ray.direction * t;
     vec2 worlduv = sphereUV(hitpos);
     vec3 radiance =  texture2D(texture01,worlduv).xyz;
-    if(World){
+    if(!World){
         radiance = vec3(0.0);
     }
     return radiance;
@@ -236,10 +276,19 @@ bool Scene(Ray r,inout Info info){
 
     Info tes;
     tes.distance = 10000.;
-    if(baseplaneIntersect(r,tes)){
+    if(cercleplaneIntersect(r,tes,8.0)){
         if(tes.distance < info.distance){
             hit = true;
             info = tes;
+        }
+    }
+
+    Info test;
+    test.distance = 10000.;
+    if(squarePlaneIntersect(r,test)){
+        if(test.distance < info.distance){
+            hit = true;
+            info = test;
         }
     }
     return hit;
@@ -331,10 +380,10 @@ float GSJMSF(float nv,float nl,float alpha){
     return 1./(1. + lambdav + lambdal);
 }
 
-
 vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random){
     vec3 n = vec3(0.0,1.0,0.0);
     wi = sampleHemisphere(random.x,random.y,pdf);
+    //wi = sampleGGX(random.x,random.y,pdf);
     vec3 v = wo;
     vec3 l = wi;
     vec3 h = normalize(v+l);
@@ -350,11 +399,19 @@ vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,v
     vec3 F = fresnelSchlick(F0,vh);
     
     vec3 f = F * D * G / (4.0 * nv * nl);
-    
+    //vec3 f = F * G / (4.0 * nv * nl);
     return f;
-
 }
 
+//Disney BRDF
+//vec3 DisneyBRDF(vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random,vec3 baseColor,float subsurface,
+//    float metallic,float specular,float specularTint,float roughness,float sheen,float sheenTint,float clearCort,float clearcoatGloss){
+    
+    //vec3 n = vec3(0.0,1.0,0.0);
+    //wi = sampleHemisphere(random.x,random.y,pdf);
+    
+//    return vec3(0.0);
+//}
 //パストレーサー本体
 vec3 pathtracer(Ray ray,vec2 uv){
 	float p = 0.99;
@@ -386,7 +443,7 @@ vec3 pathtracer(Ray ray,vec2 uv){
         tangentSpaceBasis(info.normal,t,b);
 		vec3 wo = worldtoLoacal(-ray.direction,t,info.normal,b);
 		float pdf = 0.0;
-        vec3 hash = vec3(uv,float(iTime) * 0.3) + float(i) * 500.0 + 50.0;
+        vec3 hash = vec3(hash22(uv),hash22(vec2(float(iTime) * 0.3,iTime)).x) + float(i) * 500.0 + 50.0;
         vec2 xi = hash23(hash);
         vec3 wi = vec3(1.0);
         
@@ -416,10 +473,13 @@ vec3 pathtracer(Ray ray,vec2 uv){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
             BSDF = Mirror(vec3(0.9),wo,wi,pdf);
         }
+        else if(info.number == 10){
+            //BSDF = Lambert(texture2D(texture01,info.uv).xyz,wi,pdf,xi);
+            BSDF = MicroFacet(vec3(1.,0.86,0.57),wo,wi,clamp(texture2D(texture04,info.uv).x + 0.1,0.0,1.0),pdf,xi);
+            //BSDF = MicroFacet(vec3(1.,0.86,0.57),wo,wi,0.01,pdf,xi);
+        }
         else{
-            BSDF = vec3(0.0);
-            wi = vec3(0.0,1.0,0.0);
-            pdf = 1.;
+            BSDF = Lambert(texture2D(texture03,info.uv).xyz,wi,pdf,xi);
         }
 
 		vec3 nextDirection = localToWorld(wi,t,info.normal,b);
@@ -471,6 +531,7 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos){
     //レンズ上の位置
     //ランダム関数
     vec2 xi = hash23(vec3(iTime * uv.x, iTime * iTime * uv.y , iTime * iTime * iTime));
+    xi = hash22(xi);
     float phi = 2.0 * M_PI * xi.x;
     float r = xi.y * f / (2.0 * F);
     vec3 S = C + r * cos(phi) * cu + r * sin(phi) * cv;
@@ -581,6 +642,7 @@ void main(void){
             var tex = texLoader.load("Pic1.jpg");
             var tex2 = texLoader.load("moon.jpg");
             var tex3 = texLoader.load("earth.png");
+            var tex4 = texLoader.load("world.png");
 
             function takePicture() {
                 this.shot = function () {
@@ -645,6 +707,7 @@ void main(void){
                 texture01: { type: 'f', value: tex },
                 texture02: { type: 'f', value: tex2 },
                 texture03: { type: 'f', value: tex3 },
+                texture04: { type: 'f', value: tex4 },
 
                 cameraPos: { value: shadercamera.position },
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
