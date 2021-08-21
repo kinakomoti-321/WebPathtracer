@@ -36,11 +36,24 @@
         uniform vec3 cameraLens;
         uniform bool LensCheck;
 
+        uniform vec3 _BASECOLOR;
+        uniform float _SUBSURFACE;
+        uniform float _METALLIC;
+        uniform float _SPECULAR;
+        uniform float _SPECULARTINT;
+        uniform float _ROUGHNESS;
+        uniform float _ANISTROPIC;
+        uniform float _SHEEN;
+        uniform float _SHEENTINT;
+        uniform float _CLEARCOAT;
+        uniform float _CLEARCOATTINT;
+        uniform vec3 _POSITION;
+
         uniform bool World;
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define HASHSCALE2 vec2(.1392,.1953)
-#define lerp(v1,v2,x) x * v1 + (1.0 - x) * v2
+
 //Rayや球、衝突情報の構造体の宣言
 struct Ray{
     vec3 origin;
@@ -61,6 +74,13 @@ struct Info{
     int number;
 };
 
+//線形補完
+vec3 lerp(vec3 v1,vec3 v2,float t){
+    return v1 + t * (v2 - v1);
+}
+float lerp(float a, float b, float t){
+    return a + t * (b - a);
+}
 //ランダム関数、サンプリングなどに使う。
 float random (vec2 st) {
     return fract(dot(st.xy,
@@ -135,7 +155,7 @@ vec3 sampleHemisphere(float u, float v, inout float pdf){
 }
 
 //https://hal.archives-ouvertes.fr/hal-01509746/document
-vec3 sampleGGX(float u,float v, vec3 wo){
+vec3 sampleGGXheitz(float u,float v, vec3 wo,inout vec3 normal){
     vec3 T1 = (wo.z <0.99) ? normalize(cross(wo,vec3(0.0,0.0,1.0))) : vec3(1.0,0.0,0.0);
     vec3 T2 = cross(T1,wo);
 
@@ -148,9 +168,17 @@ vec3 sampleGGX(float u,float v, vec3 wo){
     vec3 P = P1 * T1 + P2 * T2;
     vec3 N = P + sqrt(max(0.0, 1.0 - length(P) * length(P))) * wo;
     N = normalize(N);
-
+    normal =N;
     vec3 wi = reflect(wo,N);
     return wi;
+}
+
+vec3 sampleGGXwalter(float u,float v ,vec3 wo){
+    float theta = atan(sqrt(u)/sqrt(max(0.0,1.0 - u)));
+    float phi = 2. * M_PI * v;
+    vec3 normal = vec3(cos(phi) * sin(theta),cos(theta),
+                 sin(phi) * sin(theta));
+    return normalize(reflect(wo,normal));
 }
 //球の衝突判定
 bool intersectSphere(Ray R,Sphere S,inout Info info){
@@ -301,6 +329,17 @@ bool Scene(Ray r,inout Info info){
             info = test;
         }
     }
+    
+    Info l;
+    sphere.position = _POSITION;
+    sphere.number = 6;
+    l.distance = 10000.;
+    if(intersectSphere(r,sphere,l)){
+        if(l.distance < info.distance){
+            hit = true;
+            info = l;
+        }
+    }
     return hit;
 }
 
@@ -392,11 +431,13 @@ float GSJMSF(float nv,float nl,float alpha){
 
 vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random){
     vec3 n = vec3(0.0,1.0,0.0);
+    vec3 N;
     wi = sampleHemisphere(random.x,random.y,pdf);
-    //wi = sampleGGX(random.x,random.y,pdf);
+    //wi = sampleGGXheitz(random.x,random.y,wo,N);
+    //wi = sampleGGXwalter(random.x,random.y,wo);
     vec3 v = wo;
     vec3 l = wi;
-    vec3 h = normalize(v+l);
+    vec3 h = normalize((v+l)/2.0);
     float nh = dot(n,h);
     float nl = dot(n,l);
     float nv = dot(n,v);
@@ -408,20 +449,107 @@ vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,v
     float G = GSJMSF(nv,nl,alpha);
     vec3 F = fresnelSchlick(F0,vh);
     
-    vec3 f = F * D * G / (4.0 * nv * nl);
-    //vec3 f = F * G / (4.0 * nv * nl);
+    vec3 f = F* D * G / (4.0 * nv * nl );
+    //pdf = 1.0;
     return f;
 }
 
 //Disney BRDF
-//vec3 DisneyBRDF(vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random,vec3 baseColor,float subsurface,
-//    float metallic,float specular,float specularTint,float roughness,float sheen,float sheenTint,float clearCort,float clearcoatGloss){
+float SchlickFresnel(float w,float F90){
+    float m = clamp(max(1.-w,0.0),0.,1.);
+    float wn5 = m * m * m * m * m;
+    return 1.0 + (F90 - 1.0) * wn5;
+}
+
+vec3 Spec(vec3 wo,vec3 wi,float roughness,vec3 F0){
+    vec3 n = vec3(0.0,1.0,0.0);
+    vec3 v = wo;
+    vec3 l = wi;
+    vec3 h = normalize((v+l)/2.0);
+    float nh = dot(n,h);
+    float nl = dot(n,l);
+    float nv = dot(n,v);
+    float vh = dot(v,h);
     
-    //vec3 n = vec3(0.0,1.0,0.0);
-    //wi = sampleHemisphere(random.x,random.y,pdf);
+    float alpha = roughness;
     
-//    return vec3(0.0);
-//}
+    float D = DGGX(nh,alpha);
+    float G = GSJMSF(nv,nl,alpha);
+    vec3 F = fresnelSchlick(F0,vh);
+    
+    vec3 f = F* D * G / (4.0 * nv * nl );
+    return f;
+}
+//Berry
+float DBerry(float NdotH,float a){
+    float a2 = a*a;
+    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+    return (a2 - 1.0) / (M_PI * log(a2) * t);
+}
+
+vec3 clearC(vec3 wo,vec3 wi,float alpha,float cl){
+    vec3 n = vec3(0.0,1.0,0.0);
+    vec3 v = wo;
+    vec3 l = wi;
+    vec3 h = normalize((v+l)/2.0);
+    float nh = dot(n,h);
+    float nl = dot(n,l);
+    float nv = dot(n,v);
+    float vh = dot(v,h);
+    
+    float D = DBerry(nh,alpha);
+    float G = GSJMSF(nv,nl,0.25);
+    vec3 F = fresnelSchlick(vec3(0.04),vh);
+    
+    vec3 f = 0.25 * cl * F* D * G / (4.0 * nv * nl );
+    return f;
+}
+vec3 DisneyBRDF(vec3 wo,inout vec3 wi,vec2 random,inout float pdf,vec3 baseColor,float subsurface,float metallic,float specular,float specularTint,float roughness,float anistropic,float sheen,float sheenTint,float clearcoat,float clearcoartGlss){
+    vec3 n = vec3(0.0,1.0,0.0);
+    wi = sampleHemisphere(random.x,random.y,pdf);
+    vec3 L = wo;
+    vec3 V = wi;
+    roughness = max(roughness * roughness,0.001);
+    float NdotL = max(dot(n,wi),0.0);
+    float NdotV = max(dot(n,wo),0.0);
+    vec3 H = normalize(L + V);
+    float NdotH = max(dot(n,H),0.0);
+    float LdotH = dot(L,H); 
+
+    //rho
+    float luminance = 0.3 * baseColor.x + 0.6 * baseColor.y + 0.1 * baseColor.z;
+    vec3 rho_tint = (luminance > 0.0) ? baseColor / luminance : vec3(1.0);
+    vec3 rho_spec = lerp(vec3(1.0),rho_tint,specularTint);
+    vec3 rho_sheen = lerp(vec3(1.0),rho_tint,sheenTint);
+
+    //Diffse fresnel
+    float Fd90 = 0.5 + 2.0 * LdotH* LdotH * roughness;
+    float FL = SchlickFresnel(NdotL,Fd90),FV = SchlickFresnel(NdotV,Fd90);
+    vec3 FD = baseColor * FL * FV / M_PI;
+
+    //specular 
+    float Fss90 = roughness * LdotH * LdotH;
+    vec3 Fs0 = lerp(0.08 * specular * rho_spec,baseColor,metallic);
+    vec3 mf = fresnelSchlick(Fs0,LdotH);
+    float md = DGGX(NdotH,roughness); 
+    float mg = GSJMSF(NdotV,NdotL,roughness);
+    vec3 Fspec = Spec(wo,wi,roughness,Fs0);
+
+    //sheen
+    vec3 Fsheen = sheen * rho_sheen * pow(1.0 -LdotH,5.0);
+
+    //subsurface
+    float sFL = SchlickFresnel(NdotL,Fss90),sFV = SchlickFresnel(NdotV,Fss90);
+    float subcos = 1. / (NdotL + NdotV) - 0.5;
+    vec3 Fsub = baseColor * 1.25 * ( sFL * sFV * subcos + 0.5) /M_PI;
+
+    //Clearcoat
+    float alphac = lerp(0.1,0.001,clearcoartGlss);
+    vec3 Fclear = clearC(wo,wi,alphac,clearcoat);
+
+    return (lerp(FD,Fsub,subsurface)+ Fsheen)* (1.0 - metallic) + Fspec + Fclear;
+}
+
 //パストレーサー本体
 vec3 pathtracer(Ray ray,vec2 uv){
 	float p = 0.99;
@@ -481,7 +609,22 @@ vec3 pathtracer(Ray ray,vec2 uv){
         }
         else if(info.number == 5){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
+            
             BSDF = Mirror(vec3(0.9),wo,wi,pdf);
+        }
+        else if(info.number == 6){
+            vec3 baseColor = _BASECOLOR/255.0;
+            float subsurface = _SUBSURFACE;
+            float metallic = _METALLIC;
+            float specular = _SPECULAR;
+            float specularTint = _SPECULARTINT;
+            float roughness = _ROUGHNESS;
+            float anistropic = _ANISTROPIC;
+            float sheen = _SHEEN;
+            float sheenTint = _SHEENTINT;
+            float clearcoat = _CLEARCOAT;
+            float clearcoartGlss = _CLEARCOAT;
+            BSDF = DisneyBRDF(wo, wi,xi,pdf,baseColor,subsurface, metallic,specular,specularTint,roughness,anistropic,sheen,sheenTint,clearcoat,clearcoartGlss);
         }
         else if(info.number == 10){
             //BSDF = Lambert(texture2D(texture01,info.uv).xyz,wi,pdf,xi);
@@ -608,7 +751,7 @@ void main(void){
         var writeBuffer;
         var shadercamera;
         var prev;
-
+        var flame = 0.0;
         // ページの読み込みを待つ
         window.addEventListener('DOMContentLoaded', init);
 
@@ -635,10 +778,27 @@ void main(void){
         function worldParam() {
             this.Background = true;
         }
+        function materialParam() {
+            this.BaseColor = [10, 10, 10];
+            this.Subsurface = 0.0;
+            this.Roughness = 0.0;
+            this.Specular = 0.0;
+            this.SpecularTint = 0.0;
+            this.Metallic = 0.0;
+            this.Anistoropic = 0.0;
+            this.Sheen = 0.0;
+            this.SheenTint = 0.0;
+            this.Clearcoat = 0.0;
+            this.ClearcoatTint = 0.0;
+            this.x = 0.0;
+            this.y = 1.0;
+            this.z = 5.0;
+        }
+
         function init() {
             var width = window.width;
             var height = window.height;
-            var flame = 0.0;
+
             // レンダラーを作成
             const renderer = new THREE.WebGLRenderer({
                 canvas: document.querySelector('#myCanvas'),
@@ -662,10 +822,12 @@ void main(void){
 
             const gui = new dat.GUI();
             var cameragui = gui.addFolder('Camera');
-            var worldgui = gui.addFolder('World');
+            var worldgui = gui.addFolder('Scene');
+            var matgui = gui.addFolder('Material');
             var param = new CameraParam();
             var shot = new takePicture();
             var wparam = new worldParam();
+            var mparam = new materialParam();
 
             cameragui.add(param, 'f', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'F', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
@@ -673,6 +835,20 @@ void main(void){
             cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
             cameragui.add(shot, 'shot');
             worldgui.add(wparam, 'Background').onChange(function () { flame = 0 });
+            matgui.addColor(mparam, 'BaseColor').onChange(function () { flame = 0 });
+            matgui.add(mparam, 'Subsurface', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Roughness', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Specular', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'SpecularTint', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Metallic', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Anistoropic', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Sheen', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'SheenTint', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Clearcoat', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'ClearcoatTint', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'x', -10.0, 10.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'y', -10.0, 10.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'z', -10.0, 10.0, 0.01).onChange(function () { flame = 0; });
             var lens = new THREE.Vector3(param.f, param.F, param.L);
 
 
@@ -710,6 +886,7 @@ void main(void){
             var cameraDir = new THREE.Vector3(0, 0, -1);
             var prerotation = shadercamera.quaternion;
             var prepos = shadercamera.position;
+            var Bcolor = new THREE.Vector3(mparam.BaseColor[0], mparam.BaseColor[1], mparam.BaseColor[2]);
             let uniforms = {
                 iResolution: { value: resolution },
                 iTime: { value: 1.0 },
@@ -723,6 +900,20 @@ void main(void){
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
                 cameraLens: { value: lens },
                 LensCheck: { value: param.Lens },
+
+                _BASECOLOR: { value: Bcolor },
+                _SUBSURFACE: { value: mparam.Subsurface },
+                _METALLIC: { value: mparam.Metallic },
+                _SPECULAR: { value: mparam.Specular },
+                _SPECULARTINT: { value: mparam.SpecularTint },
+                _ROUGHNESS: { value: mparam.Roughness },
+                _ANISTROPIC: { value: mparam.Anistoropic },
+                _SHEEN: { value: mparam.Sheen },
+                _SHEENTINT: { value: mparam.SheenTint },
+                _CLEARCOAT: { value: mparam.Clearcoat },
+                _CLEARCOATTINT: { value: mparam.ClearcoatTint },
+                _POSITION: { value: [mparam.x, mparam.y, mparam.z] },
+
 
                 World: { value: wparam.Background }
             }
@@ -776,6 +967,19 @@ void main(void){
                     uniforms.cameraLens.value = lens;
                     uniforms.LensCheck.value = param.Lens;
                     uniforms.World.value = wparam.Background;
+
+                    uniforms._BASECOLOR.value = mparam.BaseColor;
+                    uniforms._METALLIC.value = mparam.Metallic;
+                    uniforms._ROUGHNESS.value = mparam.Roughness;
+                    uniforms._SUBSURFACE.value = mparam.Subsurface;
+                    uniforms._SHEEN.value = mparam.Sheen;
+                    uniforms._SHEENTINT.value = mparam.SheenTint;
+                    uniforms._ANISTROPIC.value = mparam.Anistoropic;
+                    uniforms._SPECULAR.value = mparam.Specular;
+                    uniforms._SPECULARTINT.value = mparam.SpecularTint;
+                    uniforms._CLEARCOAT.value = mparam.Clearcoat;
+                    uniforms._CLEARCOATTINT.value = mparam.ClearcoatTint;
+                    uniforms._POSITION.value = [mparam.x, mparam.y, mparam.z];
                 }
 
                 renderer.setRenderTarget(writeBuffer);
