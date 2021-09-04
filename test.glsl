@@ -1,3 +1,36 @@
+		uniform vec3 iResolution;
+		uniform float iTime;
+        uniform sampler2D buffer;
+        uniform sampler2D texture01;
+        uniform sampler2D texture02;
+        uniform sampler2D texture03;
+        uniform sampler2D texture04;
+        uniform sampler2D texture05;
+        uniform sampler2D texture06;
+
+        uniform vec3 cameraPos;
+        uniform vec3 cameraDir;
+        uniform vec3 cameraLens;
+        uniform bool LensCheck;
+
+        uniform vec3 _BASECOLOR;
+        uniform float _SUBSURFACE;
+        uniform float _METALLIC;
+        uniform float _SPECULAR;
+        uniform float _SPECULARTINT;
+        uniform float _ROUGHNESS;
+        uniform float _ANISTROPIC;
+        uniform float _SHEEN;
+        uniform float _SHEENTINT;
+        uniform float _CLEARCOAT;
+        uniform float _CLEARCOATTINT;
+        uniform vec3 _POSITION;
+        uniform float _LUMINANCE;
+        uniform float _SPHERE;
+
+        uniform int World;
+        uniform float WorldLumi;
+        uniform bool Normaltest;
 #define M_PI float(3.141592)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define HASHSCALE2 vec2(.1392,.1953)
@@ -143,7 +176,7 @@ bool intersectSphere(Ray R,Sphere S,inout Info info){
     float t2 = -b + sqrt(d);
 
     float t = t1;
-    if(t < 0.0001 || t > 10000.){
+    if(t < 0.00001 || t > 10000.){
         t = t2;
         if(t < 0.0001 || t > 10000.){
             return false;
@@ -229,12 +262,14 @@ vec3 WorldSphere(Ray ray){
     }
     vec3 hitpos = ray.origin + ray.direction * t;
     vec2 worlduv = sphereUV(hitpos);
-    vec3 radiance =  texture2D(texture01,worlduv).xyz;
+    vec3 radiance = texture2D(texture05,worlduv).xyz * WorldLumi;
     if(World == 1){
         radiance = vec3(0.0);
     }
     else if(World == 2){
         radiance = vec3(0.9);
+    }else if(World == 3){
+        radiance = texture2D(texture06,worlduv).xyz;
     }
     return radiance;
 }
@@ -275,23 +310,35 @@ bool Scene(Ray r,inout Info info){
 
     Info test;
     test.distance = 10000.;
-    if(squarePlaneIntersect(r,test)){
-        if(test.distance < info.distance){
+    sphere.radius = _SPHERE;
+    sphere.number = 6;
+    sphere.position = _POSITION;
+    if(intersectSphere(r,sphere,test)){
+        if(test.distance <info.distance){
             hit = true;
             info = test;
         }
     }
+
+    //Info test;
+    //test.distance = 10000.;
+    //if(squarePlaneIntersect(r,test)){
+    //    if(test.distance < info.distance){
+    //        hit = true;
+    //        info = test;
+    //    }
+    //}
     
-    Info l;
-    sphere.position = _POSITION;
-    sphere.number = 6;
-    l.distance = 10000.;
-    if(intersectSphere(r,sphere,l)){
-        if(l.distance < info.distance){
-            hit = true;
-            info = l;
-        }
-    }
+    //Info l;
+    //sphere.position = _POSITION;
+    //sphere.number = 6;
+    //l.distance = 10000.;
+    //if(intersectSphere(r,sphere,l)){
+    //    if(l.distance < info.distance){
+    //        hit = true;
+    //        info = l;
+    //    }
+    //}
     return hit;
 }
 
@@ -553,12 +600,12 @@ vec3 pathtracer(Ray ray,vec2 uv){
              BSDF = Lambert(texture2D(texture02,info.uv).xyz,wi,pdf,xi);
         }
         else if(info.number == 3){
-            // BSDF = Lambert(texture2D(texture03,info.uv).xyz,wi,pdf,xi);
-            LTE = s * vec3(1.2,0.8,0.8) *2.0;
-            break;
+            BSDF = Lambert(texture2D(texture03,info.uv).xyz,wi,pdf,xi);
+            //LTE = s * vec3(1.2,0.8,0.8) *2.0;
+            //break;
         }
         else if(info.number == 4){
-            BSDF = Lambert(texture2D(texture03,info.uv).xyz,wi,pdf,xi);
+            BSDF = Lambert(texture2D(texture04,info.uv).xyz,wi,pdf,xi);
         }
         else if(info.number == 5){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
@@ -577,7 +624,9 @@ vec3 pathtracer(Ray ray,vec2 uv){
             float sheenTint = _SHEENTINT;
             float clearcoat = _CLEARCOAT;
             float clearcoartGlss = _CLEARCOAT;
-            BSDF = DisneyBRDF(wo, wi,xi,pdf,baseColor,subsurface, metallic,specular,specularTint,roughness,anistropic,sheen,sheenTint,clearcoat,clearcoartGlss);
+            //BSDF = DisneyBRDF(wo, wi,xi,pdf,baseColor,subsurface, metallic,specular,specularTint,roughness,anistropic,sheen,sheenTint,clearcoat,clearcoartGlss);
+            LTE = s * vec3(1.2,0.8,0.8) * _LUMINANCE;
+            break;
         }
         else if(info.number == 10){
             //BSDF = Lambert(texture2D(texture01,info.uv).xyz,wi,pdf,xi);
@@ -675,9 +724,7 @@ void main(void){
         cameraray.origin = cameraPos;
         cameraray.direction = normalize(rayTip.xyz);
     }
-
-    vec3 col;
-
+    vec3 col = normaltest(cameraray);
     //今回の輝度を計算する
     if(!Normaltest){
         col =  pathtracer(cameraray,gl_FragCoord.xy); 
