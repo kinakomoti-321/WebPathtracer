@@ -10,10 +10,10 @@
             overflow: hidden;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="./OrbitControls.js"></script>
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script> -->
+    <!-- <script src="./OrbitControls.js"></script> -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.1/dat.gui.min.js"></script>
-    <script src="../node_modules/three/examples/js/loaders/RGBELoader.js"></script>
+
     <!-- <script src="./RGBELoader.js"></script> -->
 
     <script id="vertexShader" type="x-shader/x-vertex">
@@ -41,7 +41,12 @@
         }
     </script>
 
-    <script>
+    <script type="module">
+        import * as THREE from 'https://threejsfundamentals.org/threejs/resources/threejs/r132/build/three.module.js';
+        import { OrbitControls } from 'https://threejsfundamentals.org/threejs/resources/threejs/r132/examples/jsm/controls/OrbitControls.js';
+        import { RGBELoader } from 'https://threejsfundamentals.org/threejs/resources/threejs/r132/examples/jsm/loaders/RGBELoader.js';
+
+
         var readBuffer;
         var writeBuffer;
         var shadercamera;
@@ -100,7 +105,7 @@
             var width = window.width;
             var height = window.height;
 
-            var hdrloader = new THREE.RGBELoader;
+            var hdrloader = new RGBELoader;
 
             var request = new XMLHttpRequest();
             request.open('GET', "test.glsl", false);
@@ -186,7 +191,7 @@
 
             shadercamera.lookAt(new THREE.Vector3(0.0, 0.0, 0.0));
             //OrbitControls
-            orbitControls = new THREE.OrbitControls(shadercamera, document.querySelector('#myCanvas'));
+            var orbitControls = new OrbitControls(shadercamera, document.querySelector('#myCanvas'));
             orbitControls.enablePan = true;
             orbitControls.keyPanSpeed = 0.01;
             orbitControls.enableDamping = false;
@@ -254,7 +259,7 @@
             scene_buffer.add(box);
 
 
-            scene_render = new THREE.Scene();
+            var scene_render = new THREE.Scene();
             let uniforms_test = {
                 iResolution: { value: resolution },
                 iTime: { value: 0.0 },
