@@ -11,7 +11,10 @@
         uniform vec3 cameraPos;
         uniform vec3 cameraDir;
         uniform vec3 cameraLens;
+        uniform float cameraAp;
+        uniform float cameraSensitivity;
         uniform bool LensCheck;
+        uniform bool TestCheck;
 
         uniform vec3 _BASECOLOR;
         uniform float _SUBSURFACE;
@@ -31,7 +34,7 @@
         uniform int World;
         uniform float WorldLumi;
         uniform bool Normaltest;
-#define M_PI float(3.141592)
+#define M_PI float(3.1415926535897)
 #define HASHSCALE3 vec3(.1031, .1030, .0973)
 #define HASHSCALE2 vec2(.1392,.1953)
 
@@ -409,146 +412,196 @@ vec3 SmoothGlass(vec3 wo,inout vec3 wi,inout float pdf,float random){
 
 //MicrofasetBRDF
 // https://qiita.com/aa_debdeb/items/f813bdcbd8524a66a11b
-vec3 fresnelSchlick(vec3 f0,float cosine){
-    return f0 + (1.0 - f0) * pow(1.0 - cosine,5.0);
+// https://github.com/wdas/brdf/blob/main/src/brdfs/disney.brdf
+
+
+float fresnelSchlick(float u){
+    float m = clamp(1.0 - u, 0.0,1.0);
+    float m2 = m * m;
+    return m2 * m2 * m;
 }
 
-float DGGX(float nh,float alpha){
-    float d = (1.0 - (1.0 - alpha * alpha) * nh * nh);
-    d = max(d,0.01);
-    return alpha * alpha /(M_PI * d * d);
-}
-
-float Lambda(float alpha,float xn){
-    return 0.5 * (-1.0 + sqrt(1.0 + alpha * alpha *(1./(xn * xn) - 1.0)));
-}
-
-float GSJMSF(float nv,float nl,float alpha){
-    float lambdav = Lambda(alpha,nv);
-    float lambdal = Lambda(alpha,nl);
-    return 1./(1. + lambdav + lambdal);
-}
-
-vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random){
-    vec3 n = vec3(0.0,1.0,0.0);
-    vec3 N;
-    wi = sampleHemisphere(random.x,random.y,pdf);
-    //wi = sampleGGXheitz(random.x,random.y,wo,N);    
-    float alpha = roughness * roughness;
-    //wi = sampleGGXwalter(random.x,random.y,alpha,wo);
-    vec3 v = wo;
-    vec3 l = wi;
-    vec3 h = normalize(v+l);
-    float nh = dot(n,h);
-    float nl = dot(n,l);
-    float nv = dot(n,v);
-    float vh = dot(v,h);
-    
-    float D = DGGX(nh,alpha);
-    float G = GSJMSF(nv,nl,alpha);
-    vec3 F = fresnelSchlick(F0,vh);
-    
-    vec3 f = F* D * G / (4.0 * nv * nl );
-    //pdf = D * nh / (4.0 * vh);
-    //pdf = nh / (4.0 * vh);
-    return f;
-}
-
-//Disney BRDF
-float SchlickFresnel(float w,float F90){
-    float m = clamp(max(1.-w,0.0),0.,1.);
-    float wn5 = m * m * m * m * m;
-    return 1.0 + (F90 - 1.0) * wn5;
-}
-
-vec3 Spec(vec3 wo,vec3 wi,float roughness,vec3 F0){
-    vec3 n = vec3(0.0,1.0,0.0);
-    vec3 v = wo;
-    vec3 l = wi;
-    vec3 h = normalize((v+l)/2.0);
-    float nh = dot(n,h);
-    float nl = dot(n,l);
-    float nv = dot(n,v);
-    float vh = dot(v,h);
-    
-    float alpha = roughness;
-    
-    float D = DGGX(nh,alpha);
-    float G = GSJMSF(nv,nl,alpha);
-    vec3 F = fresnelSchlick(F0,vh);
-    
-    vec3 f = F* D * G / (4.0 * nv * nl );
-    return f;
-}
-//Berry
-float DBerry(float NdotH,float a){
-    float a2 = a*a;
-    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+float GTR1(float NdotH,float a){
+    if( a >= 0.0) return 1.0 / M_PI;
+    float a2 = a * a;
+    float t  =1.0 + (a2 - 1.0) * NdotH * NdotH;
     return (a2 - 1.0) / (M_PI * log(a2) * t);
 }
 
-vec3 clearC(vec3 wo,vec3 wi,float alpha,float cl){
-    vec3 n = vec3(0.0,1.0,0.0);
-    vec3 v = wo;
-    vec3 l = wi;
-    vec3 h = normalize((v+l)/2.0);
-    float nh = dot(n,h);
-    float nl = dot(n,l);
-    float nv = dot(n,v);
-    float vh = dot(v,h);
-    
-    float D = DBerry(nh,alpha);
-    float G = GSJMSF(nv,nl,0.25);
-    vec3 F = fresnelSchlick(vec3(0.04),vh);
-    
-    vec3 f = 0.25 * cl * F* D * G / (4.0 * nv * nl );
-    return f;
+float GTR2(float NdotH,float a){
+    float a2 = a*a;
+    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+    return a2 / (M_PI * t * t);
 }
-vec3 DisneyBRDF(vec3 wo,inout vec3 wi,vec2 random,inout float pdf,vec3 baseColor,float subsurface,float metallic,float specular,float specularTint,float roughness,float anistropic,float sheen,float sheenTint,float clearcoat,float clearcoartGlss){
-    vec3 n = vec3(0.0,1.0,0.0);
+
+float GTR2_aniso(float NdotH,float HdotX,float HdotY,float ax,float ay){
+    return 1.0 / (M_PI * ax * ay * sqrt(sqrt(HdotX / ax) + sqrt(HdotY / ay) + NdotH * NdotH));
+}
+
+vec3 GGX(vec3 wo,inout vec3 wi,float roughness,vec3 F0,vec2 random,inout float pdf){
     wi = sampleHemisphere(random.x,random.y,pdf);
     vec3 L = wo;
     vec3 V = wi;
-    roughness = max(roughness * roughness,0.001);
-    float NdotL = max(dot(n,wi),0.0);
-    float NdotV = max(dot(n,wo),0.0);
-    vec3 H = normalize(L + V);
-    float NdotH = max(dot(n,H),0.0);
-    float LdotH = dot(L,H); 
+    vec3 N = vec3(0,1,0);
+    float alpha = roughness * roughness;
+    vec3 H = normalize(wi + wo);
+    float dotLH = max(0.0,dot(L,H));
+    float dotNH = max(0.0,dot(N,H));
+    float dotNL = max(0.0,dot(N,L));
+    float dotNV = max(0.0,dot(N,V));
+    float alpha2 = alpha * alpha;
 
-    //rho
-    float luminance = 0.3 * baseColor.x + 0.6 * baseColor.y + 0.1 * baseColor.z;
-    vec3 rho_tint = (luminance > 0.0) ? baseColor / luminance : vec3(1.0);
-    vec3 rho_spec = lerp(vec3(1.0),rho_tint,specularTint);
-    vec3 rho_sheen = lerp(vec3(1.0),rho_tint,sheenTint);
+    //Fresnel
+    vec3 F = F0 + (vec3(1.0) - F0) * pow(max(0.0,1.0 - dotLH),5.0);
+    
+    //NDF
+    float df =dotNH * dotNH * (alpha2 - 1.0) + 1.0; 
+    float D = alpha2 / M_PI * df * df;
 
-    //Diffse fresnel
-    float Fd90 = 0.5 + 2.0 * LdotH* LdotH * roughness;
-    float FL = SchlickFresnel(NdotL,Fd90),FV = SchlickFresnel(NdotV,Fd90);
-    vec3 FD = baseColor * FL * FV / M_PI;
+    //kikagennsuikou
+    float k = alpha2 / 2.0;
+    float Gv = dotNV / (dotNV *(1.0 - k) + k);
+    float Gl = dotNL / (dotNL *(1.0 - k) + k);
+    float G = Gv * Gl;
 
-    //specular 
-    float Fss90 = roughness * LdotH * LdotH;
-    vec3 Fs0 = lerp(0.08 * specular * rho_spec,baseColor,metallic);
-    vec3 mf = fresnelSchlick(Fs0,LdotH);
-    float md = DGGX(NdotH,roughness); 
-    float mg = GSJMSF(NdotV,NdotL,roughness);
-    vec3 Fspec = Spec(wo,wi,roughness,Fs0);
-
-    //sheen
-    vec3 Fsheen = sheen * rho_sheen * pow(1.0 -LdotH,5.0);
-
-    //subsurface
-    float sFL = SchlickFresnel(NdotL,Fss90),sFV = SchlickFresnel(NdotV,Fss90);
-    float subcos = 1. / (NdotL + NdotV) - 0.5;
-    vec3 Fsub = baseColor * 1.25 * ( sFL * sFV * subcos + 0.5) /M_PI;
-
-    //Clearcoat
-    float alphac = lerp(0.1,0.001,clearcoartGlss);
-    vec3 Fclear = clearC(wo,wi,alphac,clearcoat);
-
-    return (lerp(FD,Fsub,subsurface)+ Fsheen)* (1.0 - metallic) + Fspec + Fclear;
+    return F * D * G / (4.0 * dotNL * dotNV);
 }
+// float DGGX(float nh,float alpha){
+//     float d = (1.0 - (1.0 - alpha * alpha) * nh * nh);
+//     d = max(d,0.01);
+//     return alpha * alpha /(M_PI * d * d);
+// }
+
+// float Lambda(float alpha,float xn){
+//     return 0.5 * (-1.0 + sqrt(1.0 + alpha * alpha *(1./(xn * xn) - 1.0)));
+// }
+
+// float GSJMSF(float nv,float nl,float alpha){
+//     float lambdav = Lambda(alpha,nv);
+//     float lambdal = Lambda(alpha,nl);
+//     return 1./(1. + lambdav + lambdal);
+// }
+
+// vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random){
+//     vec3 n = vec3(0.0,1.0,0.0);
+//     vec3 N;
+//     wi = sampleHemisphere(random.x,random.y,pdf);
+//     //wi = sampleGGXheitz(random.x,random.y,wo,N);    
+//     float alpha = roughness * roughness;
+//     //wi = sampleGGXwalter(random.x,random.y,alpha,wo);
+//     vec3 v = wo;
+//     vec3 l = wi;
+//     vec3 h = normalize(v+l);
+//     float nh = dot(n,h);
+//     float nl = dot(n,l);
+//     float nv = dot(n,v);
+//     float vh = dot(v,h);
+    
+//     float D = DGGX(nh,alpha);
+//     float G = GSJMSF(nv,nl,alpha);
+//     vec3 F = fresnelSchlick(F0,vh);
+    
+//     vec3 f = F* D * G / (4.0 * nv * nl );
+//     //pdf = D * nh / (4.0 * vh);
+//     //pdf = nh / (4.0 * vh);
+//     return f;
+// }
+
+// //Disney BRDF
+// float SchlickFresnel(float w,float F90){
+//     float m = clamp(max(1.-w,0.0),0.,1.);
+//     float wn5 = m * m * m * m * m;
+//     return 1.0 + (F90 - 1.0) * wn5;
+// }
+
+// vec3 Spec(vec3 wo,vec3 wi,float roughness,vec3 F0){
+//     vec3 n = vec3(0.0,1.0,0.0);
+//     vec3 v = wo;
+//     vec3 l = wi;
+//     vec3 h = normalize((v+l)/2.0);
+//     float nh = dot(n,h);
+//     float nl = dot(n,l);
+//     float nv = dot(n,v);
+//     float vh = dot(v,h);
+    
+//     float alpha = roughness;
+    
+//     float D = DGGX(nh,alpha);
+//     float G = GSJMSF(nv,nl,alpha);
+//     vec3 F = fresnelSchlick(F0,vh);
+    
+//     vec3 f = F* D * G / (4.0 * nv * nl );
+//     return f;
+// }
+// //Berry
+// float DBerry(float NdotH,float a){
+//     float a2 = a*a;
+//     float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
+//     return (a2 - 1.0) / (M_PI * log(a2) * t);
+// }
+
+// vec3 clearC(vec3 wo,vec3 wi,float alpha,float cl){
+//     vec3 n = vec3(0.0,1.0,0.0);
+//     vec3 v = wo;
+//     vec3 l = wi;
+//     vec3 h = normalize((v+l)/2.0);
+//     float nh = dot(n,h);
+//     float nl = dot(n,l);
+//     float nv = dot(n,v);
+//     float vh = dot(v,h);
+    
+//     float D = DBerry(nh,alpha);
+//     float G = GSJMSF(nv,nl,0.25);
+//     vec3 F = fresnelSchlick(vec3(0.04),vh);
+    
+//     vec3 f = 0.25 * cl * F* D * G / (4.0 * nv * nl );
+//     return f;
+// }
+// vec3 DisneyBRDF(vec3 wo,inout vec3 wi,vec2 random,inout float pdf,vec3 baseColor,float subsurface,float metallic,float specular,float specularTint,float roughness,float anistropic,float sheen,float sheenTint,float clearcoat,float clearcoartGlss){
+//     vec3 n = vec3(0.0,1.0,0.0);
+//     wi = sampleHemisphere(random.x,random.y,pdf);
+//     vec3 L = wo;
+//     vec3 V = wi;
+//     roughness = max(roughness * roughness,0.001);
+//     float NdotL = max(dot(n,wi),0.0);
+//     float NdotV = max(dot(n,wo),0.0);
+//     vec3 H = normalize(L + V);
+//     float NdotH = max(dot(n,H),0.0);
+//     float LdotH = dot(L,H); 
+
+//     //rho
+//     float luminance = 0.3 * baseColor.x + 0.6 * baseColor.y + 0.1 * baseColor.z;
+//     vec3 rho_tint = (luminance > 0.0) ? baseColor / luminance : vec3(1.0);
+//     vec3 rho_spec = lerp(vec3(1.0),rho_tint,specularTint);
+//     vec3 rho_sheen = lerp(vec3(1.0),rho_tint,sheenTint);
+
+//     //Diffse fresnel
+//     float Fd90 = 0.5 + 2.0 * LdotH* LdotH * roughness;
+//     float FL = SchlickFresnel(NdotL,Fd90),FV = SchlickFresnel(NdotV,Fd90);
+//     vec3 FD = baseColor * FL * FV / M_PI;
+
+//     //specular 
+//     float Fss90 = roughness * LdotH * LdotH;
+//     vec3 Fs0 = lerp(0.08 * specular * rho_spec,baseColor,metallic);
+//     vec3 mf = fresnelSchlick(Fs0,LdotH);
+//     float md = DGGX(NdotH,roughness); 
+//     float mg = GSJMSF(NdotV,NdotL,roughness);
+//     vec3 Fspec = Spec(wo,wi,roughness,Fs0);
+
+//     //sheen
+//     vec3 Fsheen = sheen * rho_sheen * pow(1.0 -LdotH,5.0);
+
+//     //subsurface
+//     float sFL = SchlickFresnel(NdotL,Fss90),sFV = SchlickFresnel(NdotV,Fss90);
+//     float subcos = 1. / (NdotL + NdotV) - 0.5;
+//     vec3 Fsub = baseColor * 1.25 * ( sFL * sFV * subcos + 0.5) /M_PI;
+
+//     //Clearcoat
+//     float alphac = lerp(0.1,0.001,clearcoartGlss);
+//     vec3 Fclear = clearC(wo,wi,alphac,clearcoat);
+
+//     return (lerp(FD,Fsub,subsurface)+ Fsheen)* (1.0 - metallic) + Fspec + Fclear;
+// }
 
 //パストレーサー本体
 vec3 pathtracer(Ray ray,vec2 uv){
@@ -609,7 +662,7 @@ vec3 pathtracer(Ray ray,vec2 uv){
         }
         else if(info.number == 5){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
-            
+            //BSDF = GGX(wo,wi,max(_METALLIC,0.001),vec3(0.9),xi,pdf);
             BSDF = Mirror(vec3(0.9),wo,wi,pdf);
         }
         else if(info.number == 6){
@@ -630,7 +683,7 @@ vec3 pathtracer(Ray ray,vec2 uv){
         }
         else if(info.number == 10){
             //BSDF = Lambert(texture2D(texture01,info.uv).xyz,wi,pdf,xi);
-            BSDF = MicroFacet(vec3(1.,0.86,0.57),wo,wi,clamp(texture2D(texture04,info.uv).x + 0.1,0.0,1.0),pdf,xi);
+            //BSDF = MicroFacet(vec3(1.,0.86,0.57),wo,wi,clamp(texture2D(texture04,info.uv).x + 0.1,0.0,1.0),pdf,xi);
             //BSDF = MicroFacet(vec3(1.,0.86,0.57),wo,wi,0.01,pdf,xi);
         }
         else{
@@ -667,7 +720,17 @@ mat3 cameraMat(vec3 ro)
     return mat3(cu, cv, cw);
 }
 
-Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos){
+// https://www.iquilezles.org/www/articles/distfunctions2d/distfunctions2d.htm
+bool cameraAperture(vec2 p,float LensRadi){
+    float r = cameraAp*LensRadi;
+    const vec3 k = vec3(-0.866025404,0.5,0.577350269);
+    p = abs(p);
+    p -= 2.0*min(dot(k.xy,p),0.0)*k.xy;
+    p -= vec2(clamp(p.x, -k.z*r, k.z*r), r);
+    return  0.0 < length(p)*sign(p.y);
+}
+
+Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float weight){
     float f = cameraLens.x;
     float F = cameraLens.y;
     float L = cameraLens.z;
@@ -689,14 +752,17 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos){
     xi = hash22(xi);
     float phi = 2.0 * M_PI * xi.x;
     float r = xi.y * f / (2.0 * F);
+    //float r = xi.x * f / (2.0 * F);
     vec3 S = C + r * cos(phi) * cu + r * sin(phi) * cv;
-
     vec3 P = C + e * L / dot(e,cw);
-
     Ray camera;
     camera.origin = S;
     camera.direction = normalize(P - S);
 
+    float pdf = 2.0 * M_PI / r;
+    float cosine = abs(dot(camera.direction,cw)); 
+    weight = cosine * cosine *cosine * cosine / (pdf * V*V);
+    ap = cameraAperture(vec2(r * cos(phi),r * sin(phi)),f/(2.0 * F));
     return camera;
 }
 
@@ -716,13 +782,19 @@ void main(void){
     vec2 uv1 = gl_FragCoord.xy/iResolution.xy;
     
     //vec4 rayTip = cameraWorldMatrix * cameraProjectionInverseMatrix * vec4(uv.xy,1.,1.);
+    float cameraWeight = 1.0;
+    float cameraRadius = cameraLens.x / (2.0 * cameraLens.y);
+    float cameraCos = 1.0;
+    bool cameraaperture = false;
     vec3 rayTip = cameraMat(cameraDir) * vec3(uv,2.0);
     if(LensCheck){
-        cameraray =  thinLensCamera(lensuv,cameraDir,cameraPos);
+        cameraray =  thinLensCamera(lensuv,cameraDir,cameraPos,cameraaperture,cameraWeight);
+        cameraCos = abs(dot(cameraray.direction,cameraDir));
     }
     else{
         cameraray.origin = cameraPos;
         cameraray.direction = normalize(rayTip.xyz);
+        cameraWeight = 1.0;
     }
     vec3 col = normaltest(cameraray);
     //今回の輝度を計算する
@@ -731,10 +803,19 @@ void main(void){
     }else{
         col = normaltest(cameraray);
     }
-    vec4 prevColor = texture2D(buffer, uv1);
+    vec4 prevColor = texture2D(buffer, uv1); 
+
+    if(LensCheck && TestCheck){ 
+        col *= cameraWeight * 1000. * cameraSensitivity * cameraWeight * 1000. * cameraSensitivity;
+    }
+    if(cameraaperture){
+        col = vec3(0.0);
+    }
     if(iTime > 1.0){
         col += prevColor.xyz;
     }
+
+
     //前の出力に今回の輝度を加え、累計の輝度を出力す。。
     gl_FragColor = vec4(col,1.0);
 }

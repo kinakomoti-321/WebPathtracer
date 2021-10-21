@@ -72,6 +72,8 @@
             this.f = 4.0;
             this.F = 50.0;
             this.L = 50.0;
+            this.Aperture = 1.0;
+            this.sensitivity = 5.0;
             this.Lens = false;
         }
 
@@ -79,6 +81,7 @@
             this.Background = 0;
             this.WorldLuminance = 1.0;
             this.normaltest = false;
+            this.testCheck = false;
 
             // this.colortest = false;
         }
@@ -154,17 +157,20 @@
             cameragui.add(param, 'f', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'F', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'L', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
+            cameragui.add(param, 'Aperture', 0.0, 1.1, 0.01).onChange(function () { flame = 0; });
+            cameragui.add(param, 'sensitivity', 0.0, 10.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
             // cameragui.add(shot, 'shot');
             worldgui.add(wparam, 'Background', { World: 0, NoBackground: 1, WhiteFurnaceTest: 2, NoHDRI: 3 }).onChange(function () { flame = 0 });
             worldgui.add(wparam, 'WorldLuminance', 0.0, 2.0, 0.01).onChange(function () { flame = 0 });
             worldgui.add(wparam, 'normaltest').onChange(function () { flame = 0 });
+            worldgui.add(wparam, 'testCheck').onChange(function () { flame = 0 });
             // matgui.addColor(mparam, 'BaseColor').onChange(function () { flame = 0 });
             // matgui.add(mparam, 'Subsurface', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'Roughness', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'Specular', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'SpecularTint', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
-            // matgui.add(mparam, 'Metallic', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
+            matgui.add(mparam, 'Metallic', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'Anistoropic', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'Sheen', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
             // matgui.add(mparam, 'SheenTint', 0.0, 1.0, 0.01).onChange(function () { flame = 0; });
@@ -228,6 +234,8 @@
                 cameraPos: { value: shadercamera.position },
                 cameraDir: { value: cameraDir.applyQuaternion(shadercamera.quaternion) },
                 cameraLens: { value: lens },
+                cameraAp: { value: param.Aperture },
+                cameraSensitivity: { value: param.sensitivity },
                 LensCheck: { value: param.Lens },
 
                 _BASECOLOR: { value: Bcolor },
@@ -247,7 +255,8 @@
 
                 World: { value: wparam.Background },
                 WorldLumi: { value: wparam.WorldLuminance },
-                Normaltest: { value: wparam.normaltest }
+                Normaltest: { value: wparam.normaltest },
+                TestCheck: { value: wparam.testCheck }
             }
             const mat = new THREE.ShaderMaterial({
                 uniforms: uniforms,
@@ -297,6 +306,8 @@
                     uniforms.cameraPos.value = prepos;
                     uniforms.cameraDir.value = dir.applyQuaternion(prerotation);
                     uniforms.cameraLens.value = lens;
+                    uniforms.cameraAp.value = param.Aperture;
+                    uniforms.cameraSensitivity.value = param.sensitivity;
                     uniforms.LensCheck.value = param.Lens;
                     uniforms.World.value = wparam.Background;
 
@@ -316,6 +327,7 @@
                     uniforms._SPHERE.value = mparam.Radius;
 
                     uniforms.Normaltest.value = wparam.normaltest;
+                    uniforms.TestCheck.value = wparam.testCheck;
                     uniforms.WorldLumi.value = wparam.WorldLuminance;
                 }
 
