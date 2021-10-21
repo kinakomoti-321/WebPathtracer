@@ -154,12 +154,13 @@
             var wparam = new worldParam();
             var mparam = new materialParam();
 
+            cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
             cameragui.add(param, 'f', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'F', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'L', 0.0, 100.0, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'Aperture', 0.0, 1.1, 0.01).onChange(function () { flame = 0; });
             cameragui.add(param, 'sensitivity', 0.0, 10.0, 0.01).onChange(function () { flame = 0; });
-            cameragui.add(param, 'Lens').onChange(function () { flame = 0; });
+
             // cameragui.add(shot, 'shot');
             worldgui.add(wparam, 'Background', { World: 0, NoBackground: 1, WhiteFurnaceTest: 2, NoHDRI: 3 }).onChange(function () { flame = 0 });
             worldgui.add(wparam, 'WorldLuminance', 0.0, 2.0, 0.01).onChange(function () { flame = 0 });

@@ -65,6 +65,11 @@ vec3 lerp(vec3 v1,vec3 v2,float t){
 float lerp(float a, float b, float t){
     return a + t * (b - a);
 }
+//回転
+vec2 rotate(vec2 v,float theta){
+    float s = sin(theta),c = cos(theta);
+    return mat2(c,s,-s,c) * v;
+}
 //ランダム関数、サンプリングなどに使う。
 float random (vec2 st) {
     return fract(dot(st.xy,
@@ -750,19 +755,43 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float 
     //ランダム関数
     vec2 xi = hash23(vec3(iTime * uv.x, iTime * iTime * uv.y , iTime * iTime * iTime));
     xi = hash22(xi);
+    vec3 S;
+    vec3 P;
+    float pdf = 1.;
+    if(!TestCheck){
     float phi = 2.0 * M_PI * xi.x;
     float r = xi.y * f / (2.0 * F);
     //float r = xi.x * f / (2.0 * F);
-    vec3 S = C + r * cos(phi) * cu + r * sin(phi) * cv;
-    vec3 P = C + e * L / dot(e,cw);
+    S = C + r * cos(phi) * cu + r * sin(phi) * cv;
+    P = C + e * L / dot(e,cw);
+    pdf = 2.0 * M_PI / r;
+    ap = cameraAperture(vec2(r * cos(phi),r * sin(phi)),f/(2.0 * F));
+    }
+    else{
+        float LensR = f/(2.0 * F) * cameraAp;
+        float TriN = float(floor(xi * 6.0));
+        //三角形の点
+        vec2 TriA = vec2(0.0);
+        vec2 TriB = rotate(vec2(0.0,LensR),TriN * 2.0 * M_PI / 6.0);
+        vec2 TriC = rotate(vec2(0.0,LensR),(TriN + 1.0) * 2.0 *M_PI/6.0);
+        
+        //三角形の一様サンプリング
+        xi = hash22(xi);
+        float sw = sqrt(xi.x);
+        vec2 TriP = TriA * (1.0 - sw) + TriB * (sw*(1.0 - xi.y)) + TriC * sw * xi.y;
+        S = C + TriP.x * cu + TriP.y * cv;
+        P = C + e * L / dot(e,cw);
+        
+        //pdf
+        pdf = 2.0 * 1.0 / (abs(length(cross(vec3(TriB,0),vec3(TriC,0))))*6.0);
+        ap = false;
+    }
     Ray camera;
     camera.origin = S;
     camera.direction = normalize(P - S);
 
-    float pdf = 2.0 * M_PI / r;
     float cosine = abs(dot(camera.direction,cw)); 
     weight = cosine * cosine *cosine * cosine / (pdf * V*V);
-    ap = cameraAperture(vec2(r * cos(phi),r * sin(phi)),f/(2.0 * F));
     return camera;
 }
 
@@ -805,7 +834,7 @@ void main(void){
     }
     vec4 prevColor = texture2D(buffer, uv1); 
 
-    if(LensCheck && TestCheck){ 
+    if(LensCheck){ 
         col *= cameraWeight * 1000. * cameraSensitivity * cameraWeight * 1000. * cameraSensitivity;
     }
     if(cameraaperture){
