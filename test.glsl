@@ -736,20 +736,24 @@ bool cameraAperture(vec2 p,float LensRadi){
 }
 
 Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float weight){
+
+ //カメラの各パラメータ (外部から受け取っている)
     float f = cameraLens.x;
     float F = cameraLens.y;
-    float L = cameraLens.z;
+    float b = cameraLens.z;
 
-    float V = L * f / (L - f);
+    float a = b * f / (b - f);
     
+    //カメラのローカル基底
     vec3 up = vec3(0,1,0);
     vec3 cw = normalize(atlook);
     vec3 cu = normalize(cross(cw,up));
     vec3 cv = normalize(cross(cu,cw));
     
-    vec3 X = camerapos + uv.x * cu + uv.y * cv;
-    vec3 C = camerapos + cw * V;
-    vec3 e = normalize(C - X);
+    //カメラのポジション
+    vec3 X0 = camerapos + uv.x * cu + uv.y * cv;
+    vec3 C = camerapos + cw * a;
+    vec3 e = normalize(C - X0);
 
     //レンズ上の位置
     //ランダム関数
@@ -763,8 +767,9 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float 
     float r = xi.y * f / (2.0 * F);
     //float r = xi.x * f / (2.0 * F);
     S = C + r * cos(phi) * cu + r * sin(phi) * cv;
-    P = C + e * L / dot(e,cw);
+    P = C + e * b / dot(e,cw);
     pdf = 2.0 * M_PI / r;
+    
     ap = cameraAperture(vec2(r * cos(phi),r * sin(phi)),f/(2.0 * F));
     }
     else{
@@ -780,7 +785,7 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float 
         float sw = sqrt(xi.x);
         vec2 TriP = TriA * (1.0 - sw) + TriB * (sw*(1.0 - xi.y)) + TriC * sw * xi.y;
         S = C + TriP.x * cu + TriP.y * cv;
-        P = C + e * L / dot(e,cw);
+        P = C + e * b / dot(e,cw);
         
         //pdf
         pdf = 2.0 * 1.0 / (abs(length(cross(vec3(TriB,0),vec3(TriC,0))))*6.0);
@@ -791,7 +796,7 @@ Ray thinLensCamera(vec2 uv,vec3 atlook,vec3 camerapos,inout bool ap,inout float 
     camera.direction = normalize(P - S);
 
     float cosine = abs(dot(camera.direction,cw)); 
-    weight = cosine * cosine *cosine * cosine / (pdf * V*V);
+    weight = cosine * cosine *cosine * cosine / (pdf * a*a);
     return camera;
 }
 
