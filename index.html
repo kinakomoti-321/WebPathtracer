@@ -184,6 +184,7 @@
             matgui.add(mparam, 'Radius', 0.1, 10.0, 0.1).onChange(function () { flame = 0; });
             matgui.add(mparam, 'Luminance', 0, 10.0, 0.1).onChange(function () { flame = 0; });
 
+            materialgui.addColor(mparam, 'BaseColor').onChange(function () { flame = 0 });
             materialgui.add(mparam, 'Roughness', 0, 1.0, 0.01).onChange(function () { flame = 0; });
 
             var lens = new THREE.Vector3(param.f, param.F, param.L);

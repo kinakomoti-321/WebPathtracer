@@ -628,7 +628,7 @@ vec3 pathtracer(Ray ray,vec2 uv){
         }
         else if(info.number == 5){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
-            BSDF = GGX(wo,wi,max(_ROUGHNESS,0.001),vec3(0.9),xi,pdf);
+            BSDF = GGX(wo,wi,_ROUGHNESS,_BASECOLOR / 255.0,xi,pdf);
             //BSDF = Mirror(vec3(0.9),wo,wi,pdf);
         }
         else if(info.number == 6){
