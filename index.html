@@ -149,6 +149,7 @@
             var cameragui = gui.addFolder('Camera');
             var worldgui = gui.addFolder('Scene');
             var matgui = gui.addFolder('Light');
+            var materialgui = gui.addFolder("Material")
             var param = new CameraParam();
             var shot = new takePicture();
             var wparam = new worldParam();
@@ -182,6 +183,8 @@
             matgui.add(mparam, 'z', -20.0, 20.0, 0.01).onChange(function () { flame = 0; });
             matgui.add(mparam, 'Radius', 0.1, 10.0, 0.1).onChange(function () { flame = 0; });
             matgui.add(mparam, 'Luminance', 0, 10.0, 0.1).onChange(function () { flame = 0; });
+
+            materialgui.add(mparam, 'Roughness', 0, 1.0, 0.01).onChange(function () { flame = 0; });
 
             var lens = new THREE.Vector3(param.f, param.F, param.L);
 

@@ -76,6 +76,11 @@ float random (vec2 st) {
                          vec2(12.9898,78.233)));
 }
 
+// Perfect Reflect_f
+vec3 Reflect_f(vec3 wo,vec3 n){
+    return normalize(-wo + 2. * dot(wo,n) * n);
+}
+
 //reffer https://github.com/gam0022/webgl/blob/master/pathtracing_sandbox.html by gam0022
 vec2 hash22(vec2 p2){
     p2 = fract(p2 * HASHSCALE2);
@@ -158,7 +163,7 @@ vec3 sampleGGXheitz(float u,float v, vec3 wo,inout vec3 normal){
     vec3 N = P + sqrt(max(0.0, 1.0 - length(P) * length(P))) * wo;
     N = normalize(N);
     normal =N;
-    vec3 wi = reflect(wo,N);
+    vec3 wi = Reflect_f(wo,N);
     return wi;
 }
 
@@ -167,7 +172,7 @@ vec3 sampleGGXwalter(float u,float v ,float alpha,vec3 wo){
     float phi = 2. * M_PI * v;
     vec3 normal = vec3(cos(phi) * sin(theta),cos(theta),
                  sin(phi) * sin(theta));
-    return normalize(reflect(wo,normal));
+    return normalize(Reflect_f(wo,normal));
 }
 
 //球の衝突判定
@@ -356,13 +361,9 @@ vec3 Lambert(vec3 rho,inout vec3 wi,inout float pdf,vec2 random){
      wi = sampleHemisphere(random.x,random.y,pdf);
      return rho / M_PI;
 }
-// Perfect Reflect
-vec3 reflect(vec3 wo,vec3 n){
-    return normalize(-wo + 2. * dot(wo,n) * n);
-}
 
 vec3 Mirror(vec3 rho,vec3 wo,inout vec3 wi,inout float pdf){
-    wi = reflect(wo,vec3(0.,1.0,0.));
+    wi = Reflect_f(wo,vec3(0.,1.0,0.));
     pdf = 1.0;
     return rho / abs(wi[1]);
 }
@@ -371,10 +372,10 @@ vec3 Mirror(vec3 rho,vec3 wo,inout vec3 wi,inout float pdf){
 float length2(vec3 v){
     return length(v) * length(v);
 }
-vec3 refract(vec3 wo,vec3 n,float n1, float n2){
+vec3 Refract(vec3 wo,vec3 n,float n1, float n2){
     vec3 th = - (n1 / n2) * (wo - dot(wo,n) * n);
     if(length2(th)> 1.0){
-        return reflect(wo,n);
+        return Reflect_f(wo,n);
     }
     vec3 tp = -sqrt(max(1.0f - length2(th),0.0)) * n;
     return normalize(th + tp);
@@ -403,13 +404,13 @@ vec3 SmoothGlass(vec3 wo,inout vec3 wi,inout float pdf,float random){
 
     float fr = glassFresnel(wo,n,ior1,ior2);
     if(random < fr){
-        wi = reflect(wo,n);
+        wi = Reflect_f(wo,n);
         pdf = 1.0;
         return rho / abs(wi.y);
     }
     else{
         pdf = 1.0;
-        wi = refract(wo,n,ior1,ior2);
+        wi = Refract(wo,n,ior1,ior2);
         return rho / abs(wi.y);
     }
 }
@@ -419,98 +420,58 @@ vec3 SmoothGlass(vec3 wo,inout vec3 wi,inout float pdf,float random){
 // https://qiita.com/aa_debdeb/items/f813bdcbd8524a66a11b
 // https://github.com/wdas/brdf/blob/main/src/brdfs/disney.brdf
 
-
-float fresnelSchlick(float u){
-    float m = clamp(1.0 - u, 0.0,1.0);
-    float m2 = m * m;
-    return m2 * m2 * m;
+float ggx_D(vec3 wm,float _alpha)
+{
+    float term1 =
+        wm.y * wm.y * (wm.x * wm.x + wm.z * wm.z) / (_alpha * _alpha);
+    return 1.0 / (M_PI * _alpha * _alpha * term1 * term1);
 }
 
-float GTR1(float NdotH,float a){
-    if( a >= 0.0) return 1.0 / M_PI;
-    float a2 = a * a;
-    float t  =1.0 + (a2 - 1.0) * NdotH * NdotH;
-    return (a2 - 1.0) / (M_PI * log(a2) * t);
+float G_lambda(vec3 w,float _alpha)
+{
+    float term = _alpha * _alpha * (w.x * w.x + w.z * w.z) / (w.y * w.y);
+    return (-1.0 + sqrt(1.0f + term)) / 2.0;
 }
 
-float GTR2(float NdotH,float a){
-    float a2 = a*a;
-    float t = 1.0 + (a2 - 1.0) * NdotH * NdotH;
-    return a2 / (M_PI * t * t);
+float smith_G2(vec3 wo,vec3 wi,float _alpha)
+{
+    //High correlated Smith shadowing function
+    return 1.0 / (1.0 + G_lambda(wo,_alpha) * G_lambda(wi,_alpha));
 }
 
-float GTR2_aniso(float NdotH,float HdotX,float HdotY,float ax,float ay){
-    return 1.0 / (M_PI * ax * ay * sqrt(sqrt(HdotX / ax) + sqrt(HdotY / ay) + NdotH * NdotH));
+vec3 sampling_m(float u,float v,float _alpha,inout float pdf)
+{
+    float theta_m = atan(_alpha * sqrt(v) / sqrt(max(1.0f - v,0.0f)));
+    float phi_m = 2.0f * M_PI * u;
+    vec3 wm = vec3(sin(theta_m) * sin(phi_m),cos(theta_m),sin(theta_m) * cos(phi_m));
+    pdf = ggx_D(wm,_alpha) * abs(wm.y); 
+    return wm;
 }
 
-vec3 GGX(vec3 wo,inout vec3 wi,float roughness,vec3 F0,vec2 random,inout float pdf){
-    wi = sampleHemisphere(random.x,random.y,pdf);
-    vec3 L = wo;
-    vec3 V = wi;
-    vec3 N = vec3(0,1,0);
-    float alpha = roughness * roughness;
-    vec3 H = normalize(wi + wo);
-    float dotLH = max(0.0,dot(L,H));
-    float dotNH = max(0.0,dot(N,H));
-    float dotNL = max(0.0,dot(N,L));
-    float dotNV = max(0.0,dot(N,V));
-    float alpha2 = alpha * alpha;
-
-    //Fresnel
-    vec3 F = F0 + (vec3(1.0) - F0) * pow(max(0.0,1.0 - dotLH),5.0);
-    
-    //NDF
-    float df =dotNH * dotNH * (alpha2 - 1.0) + 1.0; 
-    float D = alpha2 / M_PI * df * df;
-
-    //kikagennsuikou
-    float k = alpha2 / 2.0;
-    float Gv = dotNV / (dotNV *(1.0 - k) + k);
-    float Gl = dotNL / (dotNL *(1.0 - k) + k);
-    float G = Gv * Gl;
-
-    return F * D * G / (4.0 * dotNL * dotNV);
+vec3 ConductorFresnel(vec3 F0,vec3 v,vec3 n)
+{
+    return F0 + (vec3(1.0) - F0) * pow(1.0 - dot(v,n),5.0);
 }
-// float DGGX(float nh,float alpha){
-//     float d = (1.0 - (1.0 - alpha * alpha) * nh * nh);
-//     d = max(d,0.01);
-//     return alpha * alpha /(M_PI * d * d);
-// }
 
-// float Lambda(float alpha,float xn){
-//     return 0.5 * (-1.0 + sqrt(1.0 + alpha * alpha *(1./(xn * xn) - 1.0)));
-// }
+vec3 GGX(vec3 wo,inout vec3 wi,float roughness,vec3 F0,vec2 random,inout float pdf)
+{
+    float alpha = max(roughness * roughness,0.01);
+    vec3 wm = sampling_m(random.x,random.y,alpha,pdf);
 
-// float GSJMSF(float nv,float nl,float alpha){
-//     float lambdav = Lambda(alpha,nv);
-//     float lambdal = Lambda(alpha,nl);
-//     return 1./(1. + lambdav + lambdal);
-// }
+    wi = Reflect_f(wo,wm);
+    if(wi.y < 0.0){
+        pdf = 1.0;
+        return vec3(0.0);
+    }
 
-// vec3 MicroFacet(vec3 F0, vec3 wo,inout vec3 wi,float roughness,inout float pdf,vec2 random){
-//     vec3 n = vec3(0.0,1.0,0.0);
-//     vec3 N;
-//     wi = sampleHemisphere(random.x,random.y,pdf);
-//     //wi = sampleGGXheitz(random.x,random.y,wo,N);    
-//     float alpha = roughness * roughness;
-//     //wi = sampleGGXwalter(random.x,random.y,alpha,wo);
-//     vec3 v = wo;
-//     vec3 l = wi;
-//     vec3 h = normalize(v+l);
-//     float nh = dot(n,h);
-//     float nl = dot(n,l);
-//     float nv = dot(n,v);
-//     float vh = dot(v,h);
-    
-//     float D = DGGX(nh,alpha);
-//     float G = GSJMSF(nv,nl,alpha);
-//     vec3 F = fresnelSchlick(F0,vh);
-    
-//     vec3 f = F* D * G / (4.0 * nv * nl );
-//     //pdf = D * nh / (4.0 * vh);
-//     //pdf = nh / (4.0 * vh);
-//     return f;
-// }
+    float _D = ggx_D(wm,alpha);
+    float _G = smith_G2(wo,wi,alpha);
+    vec3 _F = ConductorFresnel(F0,wo,wm); 
+
+    pdf = 1.0;
+
+    return  dot(wi,wm) * _G * _F / (wi.y * wo.y); 
+}
 
 // //Disney BRDF
 // float SchlickFresnel(float w,float F90){
@@ -667,8 +628,8 @@ vec3 pathtracer(Ray ray,vec2 uv){
         }
         else if(info.number == 5){
             //BSDF = Lambert(vec3(0.0,0.0,1.0),wi,pdf,xi);
-            //BSDF = GGX(wo,wi,max(_METALLIC,0.001),vec3(0.9),xi,pdf);
-            BSDF = Mirror(vec3(0.9),wo,wi,pdf);
+            BSDF = GGX(wo,wi,max(_ROUGHNESS,0.001),vec3(0.9),xi,pdf);
+            //BSDF = Mirror(vec3(0.9),wo,wi,pdf);
         }
         else if(info.number == 6){
             vec3 baseColor = _BASECOLOR/255.0;
